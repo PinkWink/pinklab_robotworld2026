@@ -4,9 +4,7 @@
 
 ## 상태 한눈에
 
-- GitHub: https://github.com/PinkWink/pinklab_robotworld2026 (public). 원격에는 첫 커밋 472db59(부스 월드)만 있다.
-- **그 뒤의 작업은 전부 커밋 안 됨** (로봇 스택 복사 · 부스 연동 · FMS · 영상 스크립트 · 벽 문구 · 조명). 사용자가 아직 커밋 · push 를 지시하지 않았다.
-  커밋하면 소스가 약 141 MB(대부분 강좌와 같은 OpenArm 메시 119 MB).
+- GitHub: https://github.com/PinkWink/pinklab_robotworld2026 (public). 2026-11-13 bd86af1 로 로봇 스택 · FMS · 영상 스크립트 · 조명까지 전부 push (소스 약 146 MB).
 - 강좌 저장소(`/home/pw/mujoco_ros2/mobile_openarm_ws`)는 이 작업으로 바뀐 것 없음 (마지막 8242823, 깨끗함). 강좌 코드는 읽기만 한다.
 
 ## 실행
