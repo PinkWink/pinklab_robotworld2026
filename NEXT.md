@@ -1,6 +1,6 @@
 # 다음 세션 재개 안내 (pinklab_robotworld2026)
 
-마지막 갱신: 2026-11-12 저녁. 이 문서만 보고 이어갈 수 있도록 쓴다.
+마지막 갱신: 2026-11-13 저녁 (조명 작업 후 세션 종료, 스택 내려 둠). 이 문서만 보고 이어갈 수 있도록 쓴다.
 
 ## 상태 한눈에
 
@@ -44,7 +44,8 @@ cd ~/mujoco_ros2/pinklab_robotworld2026
 
 ## 다음 (사용자 결정 대기)
 
-- 커밋 · push 여부 (위 '상태' 참고).
+- 영상 두 개(`artifacts/video/` intro 1:45 · orbit 20 s)는 2026-11-13 최종 조명으로 다시 렌더함(git 밖). 조명을 또 바꾸면 스택을 한 번 띄워 `artifacts/mobile_generated/warehouse.xml` 을 새로 만든 뒤 `orbit.py` · `compose.py` 재실행.
+- 조명 밝기 조정 요청이 오면 `src/robotworld/robotworld/world.py` `lights()` 의 flood 인자(out · up · cutoff · diffuse). 조명은 이미 8개 한도(7 + headlight).
 - 영상 수정 요청이 오면 `video/compose.py` (자막 · 장면 길이 · 배속 · 카메라).
 - Confluence 번외편 페이지(부모 3692396550 아래) — 아직 안 만듦.
 - 라이선스 파일 여부.
