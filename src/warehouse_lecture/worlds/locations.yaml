@@ -1,0 +1,67 @@
+# 부스 안의 이름 있는 장소 (map 좌표 = MuJoCo world, m). LLM 지령의 "어디로" 와 Nav2 목표를 잇는 사전.
+# base_goal: [x, y, yaw] 로봇이 서는 자리 (회전 여유 0.58 m 이상을 확인한 자리). station: 도킹해서 집기/놓기 하는 곳.
+# center: 그 장소의 중심 (조우 기억 · "여기가 어디" 판단용), radius: 그 장소로 부르는 반경.
+locations:
+  home:
+    aliases: [대기 위치, 홈, 상담존 가운데, 처음 자리]
+    center: [5.3, -3.2]
+    base_goal: [5.28, -3.22, 0.0]
+    radius: 0.8
+  drinks:
+    aliases: [음료대, 음료 스테이션, 컵 놓는 곳, 음료]
+    center: [7.65, -1.60]
+    base_goal: [7.65, -2.82, 1.5708]
+    radius: 1.0
+    station: drinks
+  consult_1:
+    aliases: [상담 테이블 1, 1번 상담 테이블, 1번 테이블, 안쪽 상담 테이블]
+    center: [6.28, -1.90]
+    base_goal: [4.96, -1.90, 0.0]
+    radius: 1.0
+    station: consult_1
+  consult_2:
+    aliases: [상담 테이블 2, 2번 상담 테이블, 2번 테이블, 입구 쪽 상담 테이블]
+    center: [6.38, -4.43]
+    base_goal: [5.06, -4.43, 0.0]
+    radius: 1.0
+    station: consult_2
+  info:
+    aliases: [인포, 인포데스크, 안내 데스크, 안내데스크]
+    center: [8.2, -5.5]
+    base_goal: [7.43, -3.77, -1.15]   # 데스크에서 1.8 m, 회전 여유 0.76 m (0.58 m 자리는 수동 조작 뒤 빠져나오지 못했다)
+    radius: 1.5
+  table_a:
+    aliases: [테이블 A, 테이블A, 펜듈럼, 펜듈럼 테이블]
+    center: [8.7, -1.8]
+    base_goal: [7.72, -2.62, 0.70]
+    radius: 1.0
+  table_b:
+    aliases: [테이블 B, 테이블B, 픽앤플레이스, 픽앤플레이스 테이블, PL-2M 테이블]
+    center: [8.46, -0.56]
+    base_goal: [6.68, -0.82, 0.15]
+    radius: 1.2
+  pharmacy:
+    aliases: [약국, 태전약품, 약국 실증, 약국 테이블]
+    center: [3.25, -0.95]
+    base_goal: [4.68, -1.38, 2.85]
+    radius: 1.2
+  classroom_1:
+    aliases: [교실1, 교실 1, 핑키 스튜디오, 핑키 체험존, 교실]
+    center: [2.7, -4.5]
+    base_goal: [4.38, -4.53, 3.13]
+    radius: 1.6
+  classroom_2:
+    aliases: [교실2, 교실 2, 피지컬 AI 스튜디오]
+    center: [2.5, -2.4]
+    base_goal: [3.88, -2.22, -3.02]
+    radius: 1.0
+  entrance:
+    aliases: [입구, 주출입구, 출입구]
+    center: [6.0, -6.0]
+    base_goal: [5.98, -5.53, -1.55]
+    radius: 1.0
+  pole:
+    aliases: [원기둥, 핑크랩 스튜디오 기둥, 배너 기둥]
+    center: [4.23, -2.77]
+    base_goal: [4.88, -3.02, 2.77]
+    radius: 0.8

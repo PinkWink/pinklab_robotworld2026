@@ -1,0 +1,4 @@
+# Moving actors (mocap people / props driven by /warehouse/set_actor). The booth's staff and visitors are built by the
+# robotworld package from the design data; nothing extra here yet (walking visitors come later).
+colors: {}
+actors: []

@@ -1,4 +1,10 @@
 build/
+install/
+log/
+artifacts/
+.ros/
 __pycache__/
 *.pyc
 .venv*/
+.env
+logs/

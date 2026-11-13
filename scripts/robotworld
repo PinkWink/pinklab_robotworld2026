@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -e
+MOBILE_WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MOBILE_ENV_MODE="${MOBILE_ENV_MODE:-auto}"
+if [[ "$MOBILE_ENV_MODE" == auto ]]; then
+  if [[ "$(uname -s)" == Linux && ( "${ROS_DISTRO:-}" == jazzy || -f /opt/ros/jazzy/setup.bash ) ]]; then MOBILE_ENV_MODE=native; else MOBILE_ENV_MODE=conda; fi
+fi
+if [[ "$MOBILE_ENV_MODE" == conda ]]; then
+  unset PYTHONPATH
+  source "${PINKY_CONDA:-/opt/miniconda3}/etc/profile.d/conda.sh"
+  conda activate pinky-jazzy
+elif [[ "$MOBILE_ENV_MODE" == native ]]; then
+  # 새 터미널에서 source 없이 실행해도 되도록 ROS 2 Jazzy와 venv를 스스로 켠다.
+  if [[ "${ROS_DISTRO:-}" != jazzy ]]; then
+    [[ -f /opt/ros/jazzy/setup.bash ]] || { echo 'ROS 2 Jazzy(/opt/ros/jazzy)가 없습니다.' >&2; exit 1; }
+    set +e; source /opt/ros/jazzy/setup.bash; set -e
+  fi
+  MOBILE_VENV="$MOBILE_WORKSPACE/.venv"
+  if [[ "${VIRTUAL_ENV:-}" != "$MOBILE_VENV" ]]; then
+    if [[ -f "$MOBILE_VENV/bin/activate" ]]; then
+      [[ -n "${CONDA_PREFIX:-}" ]] && PATH="$(tr ':' '\n' <<<"$PATH" | grep -v "^${CONDA_PREFIX%/envs/*}" | paste -sd: -)"
+      source "$MOBILE_VENV/bin/activate"
+    else
+      echo 'venv(.venv)가 없습니다. ./scripts/install.sh 를 먼저 실행하세요.' >&2; exit 1
+    fi
+  fi
+else echo 'MOBILE_ENV_MODE must be auto, conda, or native.' >&2; exit 1; fi
+# Domain 44: the lecture repository uses 43, so both can run on one PC without mixing topics.
+export ROS_DOMAIN_ID="${ROBOTWORLD_ROS_DOMAIN_ID:-44}" ROS_LOCALHOST_ONLY=1 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_STATIC_PEERS=''
+# CycloneDDS when installed (recommended); otherwise fall back to the default RMW so the
+# stack runs on a plain ros-jazzy-desktop install.
+if [[ -d "${AMENT_PREFIX_PATH%%:*}/../share/rmw_cyclonedds_cpp" || -d /opt/ros/jazzy/share/rmw_cyclonedds_cpp || -n "$(ls -d ${CONDA_PREFIX:-/nonexistent}/share/rmw_cyclonedds_cpp 2>/dev/null)" ]]; then
+  export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+  export CYCLONEDDS_URI="$(cat "$MOBILE_WORKSPACE/src/mobile_openarm_bringup/config/cyclonedds.xml")"
+else
+  echo "rmw_cyclonedds_cpp not installed; using the default RMW (sudo apt install ros-jazzy-rmw-cyclonedds-cpp to enable it)" >&2
+fi
+export ROS_HOME="$MOBILE_WORKSPACE/.ros/robotworld" ROS_LOG_DIR="$MOBILE_WORKSPACE/.ros/robotworld/log"
+export MOBILE_OPENARM_MODEL_DIR="$MOBILE_WORKSPACE/artifacts/mobile_generated" PYTHONNOUSERSITE=1
+mkdir -p "$ROS_LOG_DIR" "$MOBILE_OPENARM_MODEL_DIR"
+cd "$MOBILE_WORKSPACE"
+MOBILE_PYTHON="$(command -v python3)"
+MOBILE_ROS2="$(command -v ros2)"
+command="${1:-start}";if [[ $# -gt 0 ]]; then shift;fi
+if [[ "$command" == build ]]; then
+  exec "$MOBILE_PYTHON" -m colcon build --symlink-install --base-paths src --packages-up-to mobile_openarm_bringup warehouse_lecture warehouse_skills robotworld --event-handlers desktop_notification- "$@"
+fi
+if [[ "$command" == doctor ]]; then
+  [[ -f install/local_setup.bash ]] && source install/local_setup.bash
+  exec "$MOBILE_PYTHON" "$MOBILE_WORKSPACE/scripts/doctor.py" "$@"
+fi
+if [[ "$command" == stop ]]; then
+  exec "$MOBILE_PYTHON" "$MOBILE_WORKSPACE/scripts/stack_procs.py" --kill
+fi
+case "$command" in
+  start|nav|drive|slam|moveit|display)
+    # 이전 실행이 남아 있으면 같은 이름의 액션 서버가 둘이 되어 한 goal 을 두 번 실행한다.
+    if [[ "${MOBILE_SKIP_PROC_CHECK:-0}" != 1 ]] && ! "$MOBILE_PYTHON" "$MOBILE_WORKSPACE/scripts/stack_procs.py" >&2; then
+      echo '위 프로세스가 이전 실행에서 남아 있습니다. 정리: ./scripts/robotworld stop  (그 뒤 다시 실행)' >&2; exit 1
+    fi;;
+esac
+[[ -f install/local_setup.bash ]] || { echo 'Run ./scripts/robotworld build first.' >&2; exit 1; }
+source install/local_setup.bash
+case "$command" in
+  start|nav) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" launch mobile_openarm_bringup warehouse.launch.py mode:=nav "$@";;
+  drive) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" launch mobile_openarm_bringup warehouse.launch.py mode:=drive moveit:=false "$@";;
+  slam) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" launch mobile_openarm_bringup warehouse.launch.py mode:=slam moveit:=false "$@";;
+  moveit) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" launch mobile_openarm_bringup warehouse.launch.py mode:=drive moveit:=true "$@";;
+  teleop) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p speed:=0.25 -p turn:=0.5 "$@";;
+  goal) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" run mobile_openarm_navigation goal "$@";;
+  arm) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" run mobile_openarm_moveit_config joint_goal "$@";;
+  pick) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" run warehouse_skills pick_place "$@";;
+  display) exec "$MOBILE_PYTHON" "$MOBILE_ROS2" launch mobile_openarm_description display.launch.py "$@";;
+  fms) exec "$MOBILE_PYTHON" "$MOBILE_WORKSPACE/fms/server.py" "$@";;
+  exec) exec "$@";;
+  shell) exec bash --noprofile --norc;;
+  *) echo 'Usage: robotworld {doctor|build|stop|start|drive|slam|nav|moveit|teleop|goal|arm|pick|fms|display|exec|shell}';exit 2;;
+esac

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PinkLAB Booth FMS</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span><b>PinkLAB</b> Booth FMS <span class="sub">로보월드 2026 · KINTEX A03</span></div>
+  <div class="meta"><span id="conn" class="pill off">연결 중</span><span>시뮬 <b id="simt">–</b> s</span>
+    <button id="estop" class="danger" title="Nav2 · 미션 · 수동 조작 모두 정지">■ 정지</button></div>
+</header>
+
+<main>
+  <section class="mapcard">
+    <div class="cardhead"><h2>부스 지도</h2><p>지도를 클릭하면 그 자리로 이동, 끌면 그 방향을 보고 멈춤 · 휠 확대</p></div>
+    <div id="mapwrap"><canvas id="map"></canvas><div id="maptip"></div></div>
+    <div class="legend"><span><i class="lg robot"></i>로봇(AMCL)</span><span><i class="lg path"></i>Nav2 경로</span><span><i class="lg scan"></i>라이다</span>
+      <span><i class="lg place"></i>장소</span><span><i class="lg station"></i>집기·놓기 스테이션</span></div>
+  </section>
+
+  <aside>
+    <section class="card">
+      <div class="cardhead"><h2>로봇 상태</h2></div>
+      <dl class="stats">
+        <dt>위치</dt><dd id="pose">–</dd>
+        <dt>속도</dt><dd id="speed">–</dd>
+        <dt>Nav2</dt><dd id="nav">대기</dd>
+        <dt>미션</dt><dd id="mission">없음</dd>
+        <dt>컵</dt><dd id="world">–</dd>
+      </dl>
+      <ol id="steps" class="steps"></ol>
+    </section>
+
+    <section class="card">
+      <div class="cardhead"><h2>수동 조작</h2><p>누르고 있는 동안 이동 · 키보드 W A S D</p></div>
+      <div class="teleop">
+        <div class="pad">
+          <button data-v="1" data-w="0" class="up">▲</button>
+          <button data-v="0" data-w="1" class="left">◀</button>
+          <button data-v="0" data-w="0" class="mid" id="padstop">■</button>
+          <button data-v="0" data-w="-1" class="right">▶</button>
+          <button data-v="-1" data-w="0" class="down">▼</button>
+        </div>
+        <label class="slider">속도 <input type="range" id="spd" min="0.05" max="0.3" step="0.05" value="0.15"> <b id="spdv">0.15</b> m/s</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="cardhead"><h2>장소로 이동</h2><p>Nav2</p></div>
+      <div id="places" class="chips"></div>
+    </section>
+
+    <section class="card">
+      <div class="cardhead"><h2>카메라</h2>
+        <label class="switch"><input type="checkbox" id="camon"><span>꺼짐</span></label></div>
+      <div id="camarea" hidden>
+        <select id="camsel"><option value="head_camera">머리 카메라</option><option value="base_camera">베이스 카메라</option></select>
+        <img id="camimg" alt="로봇 카메라 영상">
+      </div>
+    </section>
+
+    <section class="card chatcard">
+      <div class="cardhead"><h2>LLM 지령</h2><p>문장으로 시키면 계획 → 확인 → 실행</p></div>
+      <div id="chat" class="chat"></div>
+      <div id="confirm" class="confirm" hidden><span>위 계획대로 진행할까요?</span><button id="yes">진행</button><button id="no" class="ghost">취소</button></div>
+      <form id="chatform"><input id="chatin" autocomplete="off" placeholder="예: 2번 테이블 손님에게 물 한 잔 가져다 드려"><button>보내기</button></form>
+      <div class="examples">
+        <button>2번 테이블 손님에게 물 한 잔 가져다 드려</button><button>흰 옷 입은 손님한테 파란 컵 갖다 드려</button>
+        <button>약국으로 안내해 줘</button><button>핑크랩은 어떤 회사야?</button>
+      </div>
+    </section>
+  </aside>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

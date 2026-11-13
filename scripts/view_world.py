@@ -10,7 +10,7 @@ from pathlib import Path
 import mujoco
 import mujoco.viewer
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src/robotworld"))
 from robotworld.world import build  # noqa: E402
 
 if __name__ == "__main__":

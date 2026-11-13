@@ -1,0 +1,44 @@
+# PinkLAB booth at RoboWorld 2026 for the mobile OpenArm. The booth itself (walls, furniture, people) comes from the
+# robotworld package (design data + scenario.yaml); this file adds what the robot stack needs.
+# MuJoCo frame: X = plan x / 100, Y = -plan z / 100. The booth spans X 0..9, Y -6..0 (main aisle +X, entrance -Y).
+name: pinklab_booth_robotworld2026
+mjcf_world: robotworld
+size: [9.0, 6.0]
+spawn: [5.3, -3.2, 0.0]          # consult zone, between the two round tables
+boxes: []                        # nothing extra; the Nav2 map is made from the booth geometry (scripts/generate_booth_map.py)
+
+# Cups (cylinders, 5 cm x 9 cm, 100 g) on the drinks stand. size = [diameter, diameter, height]
+objects:
+  - {name: cup_pink,   shape: cylinder, center: [7.50, -1.72, 0.795], size: [0.05, 0.05, 0.09], mass: 0.1, rgba: [0.87, 0.42, 0.65, 1]}
+  - {name: cup_blue,   shape: cylinder, center: [7.65, -1.72, 0.795], size: [0.05, 0.05, 0.09], mass: 0.1, rgba: [0.28, 0.39, 0.68, 1]}
+  - {name: cup_yellow, shape: cylinder, center: [7.80, -1.72, 0.795], size: [0.05, 0.05, 0.09], mass: 0.1, rgba: [0.95, 0.77, 0.23, 1]}
+
+# Stations: base_goal = Nav2 pre-dock pose; edge = middle of the table edge the robot faces; yaw = robot heading when
+# docked (the station axis); top_z = table top height.
+stations:
+  drinks:    {base_goal: [7.65, -2.82, 1.5708], edge: [7.65, -1.80], yaw: 1.5708, top_z: 0.75}
+  consult_1: {base_goal: [4.96, -1.90, 0.0],    edge: [5.98, -1.90], yaw: 0.0,    top_z: 0.72}
+  consult_2: {base_goal: [5.06, -4.43, 0.0],    edge: [6.08, -4.43], yaw: 0.0,    top_z: 0.72}
+
+# Docking markers (DICT_4X4_50) at 0.3 m, a pair per station. normal_yaw = direction the marker faces (towards the
+# robot); offset_y = lateral position seen from the docked robot (+left).
+markers:
+  - {id: 0, station: drinks,    center: [7.82, -1.805, 0.3], normal_yaw: -1.5708, size: 0.15, plate: 0.19, offset_y: -0.17}
+  - {id: 1, station: drinks,    center: [7.48, -1.805, 0.3], normal_yaw: -1.5708, size: 0.15, plate: 0.19, offset_y: 0.17}
+  - {id: 2, station: consult_1, center: [5.985, -2.05, 0.3], normal_yaw: 3.14159265, size: 0.15, plate: 0.19, offset_y: -0.15}
+  - {id: 3, station: consult_1, center: [5.985, -1.75, 0.3], normal_yaw: 3.14159265, size: 0.15, plate: 0.19, offset_y: 0.15}
+  - {id: 4, station: consult_2, center: [6.085, -4.58, 0.3], normal_yaw: 3.14159265, size: 0.15, plate: 0.19, offset_y: -0.15}
+  - {id: 5, station: consult_2, center: [6.085, -4.28, 0.3], normal_yaw: 3.14159265, size: 0.15, plate: 0.19, offset_y: 0.15}
+
+# MoveIt planning-scene obstacles near the stations (the booth geometry itself is not in MoveIt).
+# box: center + size; cylinder: center + [radius, height].
+scene_floor: {center: [4.5, -3.0, -0.05], size: [24.0, 18.0, 0.1]}
+scene:
+  - {name: drink_stand, shape: box, center: [7.65, -1.60, 0.375], size: [0.62, 0.42, 0.75]}
+  - {name: pillar, shape: box, center: [7.42, -0.45, 1.5], size: [0.24, 0.90, 3.0]}
+  - {name: consult_1_top, shape: cylinder, center: [6.28, -1.90, 0.705], size: [0.30, 0.03]}
+  - {name: consult_1_post, shape: cylinder, center: [6.28, -1.90, 0.35], size: [0.05, 0.70]}
+  - {name: consult_1_chair, shape: box, center: [6.83, -2.19, 0.45], size: [0.50, 0.50, 0.90]}
+  - {name: consult_2_top, shape: cylinder, center: [6.38, -4.43, 0.705], size: [0.30, 0.03]}
+  - {name: consult_2_post, shape: cylinder, center: [6.38, -4.43, 0.35], size: [0.05, 0.70]}
+  - {name: consult_2_chair, shape: box, center: [6.96, -4.64, 0.45], size: [0.50, 0.50, 0.90]}

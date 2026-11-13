@@ -1,0 +1,26 @@
+# Robot scenario on top of the booth design. booth_data.json stays exactly as the designers made it;
+# everything the robot needs is added or changed here. Plan units like the design: cm, x -> main aisle, z -> entrance.
+
+consult:
+  chairs_per_table: 1
+  # one chair per round table, on this side (plan angle, deg: 0 = +x, 90 = +z), with somebody sitting on it
+  seats:
+    - {table: 0, angle: 28}        # the design already has a person sitting here (685, 221)
+    - {table: 1, angle: 20, guest: {name: guest_consult_2, top: '#ffffff', pants: '#2b3a55', h: 168, female: true}}
+  # the robot serves each table from the opposite side; a low board under the table edge carries the docking markers
+  robot_side: 180
+  marker_board: {w: 50, y: [0.08, 0.52]}
+
+drink_stand:                        # 60 x 40 cm, H 750, between the pillar and table A, front towards the consult zone
+  c: [765, 160]
+  w: 60
+  d: 40
+  h: 0.75
+  front: '+z'
+
+# Wall content updates (the design HTML is not changed; these win over booth_data.json)
+stats_items:                       # '숫자로 보는 실적' (storage wall, classroom 1 side): [number, label]
+  - ['200+', '교육 · 대회']
+  - ['2,000+', '수료생']
+  - ['100+', '함께한 기관']
+  - ['2022~', '5년차']
