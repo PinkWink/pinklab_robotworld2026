@@ -1,0 +1,569 @@
+## 1. 전반부 통합 Demo: 부스 순찰
+
+### 지금까지 만든 것 합치기
+
+![전반부에서 만든 것을 한 번에](lesson07_why.png){width=1000}
+
+### 순찰 경로
+
+![⑤ 에서 만든 지도 위의 5 곳](lesson07_route.png){width=1000}
+
+### 순찰 노드: patrol.py
+
+![patrol.py 의 입력과 출력](lesson07_patrol_node.png){width=1000}
+
+### 정지 하나의 흐름
+
+![목표 → 주행 → 결과 → 대기 → 오차 기록](lesson07_stop_flow.png){width=1000}
+
+### 정지마다 재는 것
+
+![실제 · AMCL · odom](lesson07_errors.png){width=1000}
+
+## 2. 실행: 순찰 돌리기
+
+### 실행: 터미널 1 (nav)
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+./scripts/robotworld nav moveit:=false   # 패키지 지도 maps/booth (장소 좌표가 world 기준이라 ⑤ 에서 만든 지도는 쓰지 않는다)
+```
+
+### 실행 결과: 터미널 1
+
+![터미널 1: nav 실행](lesson07_t1_nav.png){width=1000}
+
+### 실행 결과: 시작 화면
+
+![MuJoCo 창(왼쪽)과 RViz2(오른쪽): 부스 지도 위의 costmap 과 로봇](lesson07_run_start.png){width=1000}
+
+### 터미널 2: patrol.py
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+python lessons/04_navigation/patrol.py          # 기본 경로: entrance → classroom_1 → pharmacy → info → home
+```
+
+### 실행 결과: patrol.py
+
+![정지마다 구간 시간 · AMCL 오차 · odom 오차](lesson07_cli_patrol.png){width=1000}
+
+### 실행 결과: 터미널 1 로그
+
+![bt_navigator · controller_server 로그: 목표 5 개, 모두 Goal succeeded](lesson07_t1_goal_log.png){width=1000}
+
+### 실행 결과: 입구 도착
+
+![MuJoCo 창과 RViz2: 첫 정지인 입구 앞에 선 로봇](lesson07_run_rack_a.png){width=1000}
+
+### 실행 결과: 약국으로 가는 중
+
+![MuJoCo 창과 RViz2: 교실1 에서 약국으로](lesson07_run_place.png){width=1000}
+
+### 실행 결과: 순찰 완료
+
+![중앙 통로(출발점)로 돌아온 로봇](lesson07_run_done.png){width=1000}
+
+### 움직이는 그림: 순찰 한 바퀴 (MuJoCo 와 RViz)
+
+![순찰 (움직이는 그림)](lesson07_patrol.gif){width=1100}
+
+### 실측: 순찰 궤적
+
+![로봇이 실제로 간 길 (/ground_truth)](lesson07_traj.png){width=1000}
+
+### 실측: 구간별 시간과 오차
+
+![구간별 시간 · 정지마다 잰 위치 오차](lesson07_legs.png){width=1000}
+
+### 실측: 속도
+
+![/odom 의 v · w: 구간마다 제자리 회전 → 직진](lesson07_speed.png){width=1000}
+
+### 터미널 3: /patrol/status 보기
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+ros2 topic echo --once /patrol/status         # 순찰 중에 실행
+```
+
+### 실행 결과: /patrol/status
+
+![미션 상태 JSON (ros2 topic echo 는 긴 문자열을 줄여서 보여 준다)](lesson07_cli_status.png){width=1000}
+
+## 3. 막혔던 곳: 인포에서 입구로 가다 멈추는 로봇
+
+### 증상: Failed to make progress
+
+![터미널 1: 인포 → 입구 구간의 로그](lesson07_t1_stuck.png){width=1000}
+
+- 처음 정한 순서(인포 → 입구 → 교실1 → 약국 → home)에서는 둘째 구간에서 순찰 실패
+- controller 가 "Failed to make progress" 를 되풀이하고, 제자리 회전 · 대기(복구 동작) 뒤에도 같은 자리
+
+### 원인: 막힘 영역의 모서리에서 방향을 틀어야 한다
+
+![local costmap 과 footprint: 멈춘 자리](lesson07_rotate_problem.png){width=1000}
+
+- 인포에서 입구로 가는 길은 상담 테이블 2 를 서쪽으로 돌아 내려가는 길 하나뿐
+- 그 모서리 (5.95, −3.54) 에서 멈춘 로봇의 footprint 가 막힘 영역에 걸쳐 있음 → controller 가 고를 수 있는 속도가 없음
+- 사람이 길을 막은 것이 아니라 경로와 로봇 크기의 문제
+
+### 해결: 순찰 순서 바꾸기
+
+![처음 순서의 /plan 과 바꾼 순서의 /plan](lesson07_shim.png){width=1000}
+
+- 입구를 home 에서 바로 가도록 순서를 바꿈: 입구 → 교실1 → 약국 → 인포 → home
+- home 에서 내려가는 길은 통로 가운데를 지나 모서리를 스치지 않음 → 15.1 s 에 도착
+- 좁은 곳을 지나는 목표는 넓은 쪽에서 들어가도록 순서 · 경유지를 정함
+
+## 4. 코드와 설정
+
+### patrol.py 의 흐름
+
+![patrol.py 흐름](lesson07_code_flow.png){width=1000}
+
+### base_goal 로 목표 만들어 보내기 - Patrol.go 발췌
+
+```python
+# lessons/04_navigation/patrol.py
+def go(self, stop):   # 발췌
+    goal = NavigateToPose.Goal()
+    goal.pose.header.frame_id = "map"
+    goal.pose.header.stamp = self.get_clock().now().to_msg()
+    x, y, yaw = stop["goal"]                                             # locations.yaml 의 base_goal
+    goal.pose.pose.position.x, goal.pose.pose.position.y = x, y
+    goal.pose.pose.orientation.z, goal.pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+    future = self.nav.send_goal_async(goal, feedback_callback=on_feedback)
+    while not future.done():
+        rclpy.spin_once(self, timeout_sec=0.05)                          # 기다리는 동안에도 콜백을 돌린다
+```
+
+- `base_goal` (x, y, yaw) → `map` 프레임의 `NavigateToPose` 목표
+- 평면 회전이라 quaternion 은 z = sin(yaw/2) · w = cos(yaw/2) 만 채움
+- `feedback_callback`: 남은 거리 · 복구 횟수 · 예상 시간을 받아 상태에 실음
+
+### 수락 확인 · 결과 기다리기 · 취소 - Patrol.go 발췌
+
+```python
+# lessons/04_navigation/patrol.py Patrol.go (이어서)
+    handle = future.result()
+    if not handle.accepted:
+        return GoalStatus.STATUS_ABORTED
+    result = handle.get_result_async()
+    while not result.done():
+        rclpy.spin_once(self, timeout_sec=0.05)
+        ...                                                              # 워치독 (아래)
+        if self.command in ("cancel", "cancel_near"):                    # 대시보드의 [취소] 또는 워치독
+            cancel = handle.cancel_goal_async()
+            ...
+    return result.result().status                                        # 4 = SUCCEEDED
+```
+
+- 액션은 두 단계: 목표 수락 (`accepted`) 확인 → `get_result_async` 로 결과 대기
+- 워치독 취소 (`cancel_near`) 는 `NEAR` 로 돌려 도착 처리 · [취소] 는 CANCELED
+
+### 목표 근처 워치독
+
+![0.25 m 안에서 8 s 동안 멈춰 있으면 넘어간다](lesson07_watchdog.png){width=1000}
+
+### 워치독 - Patrol.go 발췌
+
+```python
+# lessons/04_navigation/patrol.py
+NEAR_DIST, NEAR_STALL_S = 0.25, 8.0
+
+    still, still_since = self.truth, time.monotonic()
+    while not result.done():
+        rclpy.spin_once(self, timeout_sec=0.05)
+        if self.truth and (still is None or math.hypot(self.truth[0] - still[0], self.truth[1] - still[1]) > 0.01
+                           or abs(self.truth[2] - still[2]) > 0.02):
+            still, still_since = self.truth, time.monotonic()            # 움직였다 → 정지 시계 다시
+        near = self.amcl is not None and math.hypot(self.amcl[0] - x, self.amcl[1] - y) < NEAR_DIST
+        if near and time.monotonic() - still_since > NEAR_STALL_S:
+            self.command = "cancel_near"
+```
+
+- DWB 가 목표 몇 cm 앞에서 바퀴 마찰을 못 이기고 서 버리는 경우 대비
+- `/ground_truth` 가 1 cm · 0.02 rad 넘게 변하면 정지 시계를 다시 시작
+- AMCL 기준 목표 0.25 m 안 + 8 s 정지 → `cancel_near` 로 다음 정지점 진행
+
+### 정지마다 기록 - Patrol.run 발췌
+
+```python
+# lessons/04_navigation/patrol.py
+for i, stop in enumerate(self.stops):   # 발췌
+    self.index, self.leg_started, self.feedback = i, self.now(), {}
+    stop["status"] = "active"
+    status = self.go(stop)
+    stop["time"] = round(self.now() - self.leg_started, 1)
+    if status not in (GoalStatus.STATUS_SUCCEEDED, NEAR):
+        stop["status"], self.state = "failed", "failed"
+        break
+    self.spin_for(1.0)                                                   # AMCL 이 자리 잡게
+    stop["err_amcl"], stop["err_odom"] = self.errors()                   # 실제 위치와의 거리
+    stop["status"] = "done" if status == GoalStatus.STATUS_SUCCEEDED else "near"
+```
+
+- 정지점마다 걸린 시간 [s] 과 AMCL · odom 오차 [m] 를 `stops` 에 기록
+- 오차 = `/ground_truth` 와의 평면 거리 · 실패하면 순찰 중단 (`break`)
+- `near` = 워치독이 도착으로 처리한 정지점
+
+### 상태 알리기 - Patrol.publish 발췌
+
+```python
+# lessons/04_navigation/patrol.py
+LATCHED = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)   # 늦게 붙은 구독자도 마지막 값을 받는다
+self.pub = self.create_publisher(String, "/patrol/status", LATCHED)
+self.create_subscription(String, "/patrol/command", self.on_command, 10)
+self.create_timer(0.5, self.publish)
+
+def publish(self):
+    status = dict(state=self.state, index=self.index, message=self.message, stops=self.stops, sim_time=now,
+                  elapsed=..., leg_elapsed=..., feedback=self.feedback)
+    self.pub.publish(String(data=json.dumps(status, ensure_ascii=False)))
+```
+
+- 순찰 상태 전체를 JSON 문자열 하나로 `/patrol/status` 에 0.5 s 마다 발행
+- `TRANSIENT_LOCAL`: 나중에 켠 대시보드 · `ros2 topic echo` 도 마지막 상태를 바로 받음
+- `/patrol/command` 로 `start` · `cancel` 문자열을 받음
+
+### RotationShim 으로 제자리 회전 - nav2.yaml FollowPath 발췌
+
+```yaml
+# src/mobile_openarm_navigation/config/nav2.yaml  (발췌)
+controller_server:
+  ros__parameters:
+    FollowPath:
+      plugin: nav2_rotation_shim_controller::RotationShimController
+      primary_controller: dwb_core::DWBLocalPlanner
+      angular_dist_threshold: 0.6          # 경로와 0.6 rad 넘게 틀어져 있으면
+      rotate_to_heading_angular_vel: 0.6   # 제자리에서 0.6 rad/s 로 돌고
+      rotate_to_goal_heading: true         # 도착해서도 목표 방향으로 돈다
+```
+
+- RotationShim 이 DWB 를 감쌈 → 제자리 회전은 Shim · 주행은 DWB
+- DWB 의 작은 회전 명령이 바퀴 마찰에 묻히는 문제를 고정 각속도 회전으로 해결
+
+### 속도와 critic 비중 - nav2.yaml FollowPath 발췌
+
+```yaml
+# src/mobile_openarm_navigation/config/nav2.yaml controller_server.FollowPath (이어서)
+      max_vel_x: 0.3
+      critics: [RotateToGoal, Oscillation, ObstacleFootprint, GoalAlign, PathAlign, PathDist, GoalDist]
+      ObstacleFootprint.scale: 0.05        # 장애물 점수의 비중
+      PathAlign.scale: 16.0
+      PathDist.scale: 16.0
+      GoalDist.scale: 12.0
+```
+
+- `max_vel_x`: 최대 전진 속도 0.3 [m/s]
+- `scale` = critic 점수의 가중치 · 경로 추종 (16) 이 장애물 (0.05) 보다 훨씬 큼
+- scale 은 `critics` 에 적은 이름으로 써야 적용됨 (`BaseObstacle.scale` 은 무시됨)
+
+## 5. 웹 대시보드
+
+### 브라우저로 보는 순찰
+
+![순찰 대시보드 (http://localhost:8080)](lesson07_dash_done.png){width=1000}
+
+### 움직이는 그림: 순찰 중의 대시보드
+
+![대시보드 (움직이는 그림)](lesson07_dashboard.gif){width=1000}
+
+### 화면 구성
+
+![여섯 영역](lesson07_dash_layout.png){width=1000}
+
+### 영역별 데이터 출처
+
+![화면의 여섯 영역과 데이터 출처](lesson07_dash_parts.png){width=1000}
+
+### 구성: 프로세스 셋
+
+![시뮬레이터 · 서버 · 순찰, 그리고 브라우저](lesson07_dash_arch.png){width=1000}
+
+### 실행: 터미널 1 (카메라 프레임 저장)
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+./scripts/robotworld nav moveit:=false \
+  camera_fps:=5 camera_handler:=lessons/04_navigation/dashboard/frame_tap.py:DashboardPipeline
+```
+
+### 터미널 2: 대시보드 서버
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+python lessons/04_navigation/dashboard/server.py          # 다른 PC 에서 보려면 --host 0.0.0.0
+```
+
+### 실행 결과: 서버
+
+![Flask 서버 로그: SSE · 지도 · MJPEG · 명령 요청](lesson07_t2_server.png){width=1000}
+
+### 터미널 3: 순찰 (시작 버튼 대기)
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+python lessons/04_navigation/patrol.py --wait
+```
+
+### 브라우저 열기
+
+```bash
+google-chrome http://localhost:8080          # 또는 아무 브라우저 주소창에
+```
+
+### 실행 결과: 시작 대기
+
+![waiting: [순찰 시작] 을 누르면 터미널 3 의 순찰이 출발한다](lesson07_dash_waiting.png){width=1000}
+
+### 실행 결과: 순찰 중
+
+![입구에서 교실1 로 가는 중: 지도 위의 궤적과 카메라 영상](lesson07_dash_running.png){width=1000}
+
+### 실행 결과: 인포로 가는 중
+
+![넷째 구간: 정지표에 앞 세 곳의 시간과 오차](lesson07_dash_helmet.png){width=1000}
+
+### 실행 결과: 순찰 완료
+
+![done: 5 곳 모두 도착 · 정지표에 시간과 오차](lesson07_dash_done.png){width=1000}
+
+### 움직이는 그림: 순찰 한 바퀴 (MuJoCo 와 RViz)
+
+![순찰 (움직이는 그림)](lesson07_patrol.gif){width=1100}
+
+### 실행 결과: 터미널 3
+
+![--wait 순찰의 출력](lesson07_t3_patrol_wait.png){width=1000}
+
+### 터미널 4: 브라우저 없이 API 보기
+
+```bash
+curl -s localhost:8080/api/cameras
+curl -s -X POST -H "Content-Type: application/json" -d '{"cmd":"start"}' localhost:8080/api/command
+curl -s -N localhost:8080/api/stream | head -c 600
+```
+
+### 실행 결과: API
+
+![카메라 목록 · 명령 · SSE 한 줄](lesson07_cli_curl.png){width=1000}
+
+### 구현 원리: SSE
+
+![응답 하나를 끊지 않고 0.2 s 마다 이어 쓴다](lesson07_sse.png){width=1000}
+
+### 구현 원리: MJPEG
+
+![JPEG 를 이어 붙인 응답 하나](lesson07_mjpeg.png){width=1000}
+
+### 구현 원리: frame_tap
+
+![카메라 영상은 시뮬레이터 안에서 꺼낸다](lesson07_frametap.png){width=1000}
+
+### 구현 원리: 스레드 둘
+
+![ROS 스레드와 Flask 스레드](lesson07_threads.png){width=1000}
+
+### 프레임 저장 - DashboardPipeline 발췌
+
+```python
+# lessons/04_navigation/dashboard/frame_tap.py
+class DashboardPipeline(LecturePipeline):   # 발췌
+    def __call__(self, frames):
+        super().__call__(frames)                         # /vision/* 먼저: 대시보드는 보기만 한다
+        for name, frame in frames.items():
+            ok, jpg = cv2.imencode(".jpg", cv2.cvtColor(frame.rgb, cv2.COLOR_RGB2BGR), [cv2.IMWRITE_JPEG_QUALITY, 80])
+            tmp = FRAMES / f".{name}.jpg.tmp"
+            tmp.write_bytes(jpg.tobytes())
+            os.replace(tmp, FRAMES / f"{name}.jpg")       # 원자적 교체: 반쯤 쓴 파일을 읽지 않는다
+```
+
+- MuJoCo 카메라는 이미지 토픽이 없음 → 최신 프레임을 JPEG 파일 (`/dev/shm`) 로 저장
+- `super().__call__`: 기존 인식 (`/vision/*`) 을 먼저 수행 · 그 뒤 저장만 추가
+- 임시 파일에 쓰고 `os.replace` → 서버가 쓰는 도중의 파일을 읽지 않음
+
+### 토픽 구독 등록 - RobotState.__init__ 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py
+class RobotState(Node):   # 발췌
+    def __init__(self):
+        super().__init__("patrol_dashboard", parameter_overrides=[rclpy.Parameter("use_sim_time", value=True)])
+        self.lock = threading.Lock()
+        self.create_subscription(PoseStamped, "/ground_truth", self.on_truth, 10)
+        self.create_subscription(Odometry, "/odom", self.on_odom, 10)
+        self.create_subscription(String, "/patrol/status", self.on_patrol, LATCHED)
+        ...                                                  # /amcl_pose /plan /scan /map /actor_states /vision/detections
+```
+
+- 대시보드 서버도 ROS 노드 하나 · 필요한 토픽을 구독해 최신 값만 보관
+- `/patrol/status` 는 발행 쪽과 같은 `LATCHED` QoS 로 구독해야 마지막 값을 받음
+- `use_sim_time`: 노드 시계를 MuJoCo `/clock` 에 맞춤
+
+### odom 을 상태에 넣기 - RobotState.on_odom 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py
+def on_odom(self, m):
+    p = m.pose.pose
+    x, y, a = p.position.x, p.position.y, yaw_of(p.orientation)
+    if self.odom_origin is None:                     # 첫 값: odom 틀이 world 의 어디에 있는지 정해 둔다
+        ...
+    ox, oy, a0 = self.odom_origin
+    c, s = math.cos(a0), math.sin(a0)
+    self.put(odom=[round(ox + c * x - s * y, 3), round(oy + s * x + c * y, 3), round(a + a0, 3)],
+             twist=[round(m.twist.twist.linear.x, 3), round(m.twist.twist.angular.z, 3)])
+```
+
+- odom 은 로봇이 켜진 자리(home)를 0 으로 봄 → 첫 `/ground_truth` 로 그 자리를 구해 world 좌표로 옮김
+- 옮긴 뒤에야 지도 위에 실제 · AMCL 과 함께 그리고 오차를 잴 수 있음
+- 콜백은 최신값을 `put` 으로 넣기만 함 (그리기 · 전송은 Flask 스레드)
+
+### 잠금으로 쓰고 복사하기 - RobotState.put · snapshot 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py RobotState (이어서)
+    def put(self, **kw):
+        with self.lock:                                      # ROS 스레드가 쓰고
+            self.s.update(kw)
+
+    def snapshot(self):
+        with self.lock:                                      # Flask 스레드가 복사해 간다
+            s = dict(self.s)
+        ...
+        return s
+```
+
+- ROS 콜백과 Flask 요청은 서로 다른 스레드 → 같은 dict 를 `lock` 으로 보호
+- `snapshot` 은 복사본을 돌려줌 → JSON 변환은 잠금 밖에서 수행
+
+### SSE - api_stream 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py
+@app.get("/api/stream")
+def api_stream():
+    def gen():
+        while True:
+            yield f"data: {json.dumps(state.snapshot(), ensure_ascii=False)}\n\n"
+            time.sleep(0.2)
+    return Response(gen(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache"})
+```
+
+- SSE: HTTP 응답 하나를 끊지 않고 `data: ...` + 빈 줄 형식으로 계속 보냄
+- 0.2 s 마다 상태 스냅숏 전체를 JSON 으로 전송 (5 Hz)
+
+### 카메라 JPEG 파일 찾기 - camera 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py
+@app.get("/camera/<name>.mjpg")
+def camera(name):
+    path = FRAMES / f"{Path(name).name}.jpg"
+```
+
+- `frame_tap` 이 저장한 `<카메라 이름>.jpg` 의 경로
+- `Path(name).name`: 파일 이름만 남김 → `../` 로 다른 폴더를 읽는 요청 차단
+
+### 바뀐 프레임만 MJPEG 로 흘리기 - camera 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py camera (이어서)
+    def gen():
+        last = None
+        while True:
+            mtime = path.stat().st_mtime_ns
+            if mtime != last:                                # frame_tap 이 파일을 바꿨을 때만
+                last = mtime
+                jpg = path.read_bytes()
+                yield b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + str(len(jpg)).encode() + b"\r\n\r\n" + jpg + b"\r\n"
+            time.sleep(0.05)
+    return Response(gen(), mimetype="multipart/x-mixed-replace; boundary=frame")
+```
+
+- MJPEG = `multipart/x-mixed-replace` · JPEG 를 `--frame` 경계로 이어 보냄
+- 파일 수정 시각 (`st_mtime_ns`) 이 바뀔 때만 전송 → 같은 프레임 중복 없음
+
+### 명령 - api_command 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py
+@app.post("/api/command")
+def api_command():
+    cmd = (request.get_json(silent=True) or {}).get("cmd", "")
+    if cmd not in ("start", "cancel"):
+        return jsonify(ok=False, error="cmd must be start or cancel"), 400
+    state.cmd.publish(String(data=cmd))                      # → /patrol/command → patrol.py
+    return jsonify(ok=True, cmd=cmd)
+```
+
+- 브라우저 버튼 → HTTP POST → `/patrol/command` 토픽 발행으로 변환
+- `start` · `cancel` 외의 값은 400 으로 거절 → 임의 문자열이 ROS 로 나가지 않음
+
+### ROS 스레드 띄우기 - main 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py
+def main():   # 발췌
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)     # Ctrl+C 는 Flask 가 받는다
+    state = RobotState()
+    executor = SingleThreadedExecutor()
+    executor.add_node(state)
+    spinner = threading.Thread(target=executor.spin, daemon=True)   # ROS 스레드
+    spinner.start()
+```
+
+- `executor.spin` 을 별도 스레드에서 실행 → 토픽 콜백이 Flask 와 동시에 돎
+- `daemon=True`: 메인 스레드 (Flask) 가 끝나면 함께 종료
+- `SignalHandlerOptions.NO`: rclpy 가 Ctrl+C 를 가로채지 않게 함
+
+### Flask 스레드 실행과 정리 - main 발췌
+
+```python
+# lessons/04_navigation/dashboard/server.py main (이어서)
+    try:
+        make_app(state).run(host=a.host, port=a.port, threaded=True, use_reloader=False)   # Flask 스레드
+    finally:
+        executor.shutdown()
+        spinner.join(timeout=2)
+        state.destroy_node()
+        rclpy.try_shutdown()
+```
+
+- `threaded=True`: 요청마다 스레드 → 끝나지 않는 SSE · MJPEG 응답이 다른 요청을 막지 않음
+- `use_reloader=False`: 프로세스를 하나 더 띄우지 않음 → ROS 노드 중복 방지
+- `finally`: executor 정지 → 스레드 합류 → 노드 정리 순서
+
+### 브라우저 - app.js 발췌
+
+```javascript
+// lessons/04_navigation/dashboard/static/app.js  (발췌)
+const es = new EventSource("/api/stream");              // SSE 하나가 화면 전체를 움직인다
+es.onmessage = async (e) => {
+  S = JSON.parse(e.data);
+  if (S.map_version && S.map_version !== mapVersion) { mapVersion = S.map_version; await loadMap(); }
+  render(); drawMap(); drawDetections();
+};
+img.src = `/camera/${n}.mjpg?t=${Date.now()}`;           // 카메라는 <img> 에 MJPEG 주소만
+async function command(cmd) {
+  await fetch("/api/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd }) });
+}
+```
+
+- `EventSource` 가 SSE 를 받아 메시지마다 화면 전체를 다시 그림
+- 지도 PNG 는 `map_version` 이 바뀔 때만 다시 받음
+- 브라우저는 ROS 를 모름 → HTTP (SSE · MJPEG · POST) 만 사용
+
+### 해 볼 것
+
+- 경로 바꾸기: `python lessons/04_navigation/patrol.py --route info,table_b,pole --loops 2` → 정지표와 오차 비교
+- `nav2.yaml` 의 `rotate_to_heading_angular_vel` 을 0.3 으로 낮춰 순찰 → 구간 시간과 속도 그래프 비교
+- 대시보드를 다른 PC 에서 보기: `server.py --host 0.0.0.0` → 같은 네트워크의 노트북 · 휴대폰에서 `http://<이 PC IP>:8080`

@@ -1,0 +1,322 @@
+## 1. 주행 + 집기 + 놓기를 하나의 goal 로
+
+### ⑨ 에서 ⑩ 으로
+
+![⑨ 같은 음료대 · ⑩ 부스를 가로질러](lesson11_why.png){width=1000}
+
+### 상태 기계
+
+![navigate_pick → dock → locate → grasp → carry → navigate_place → dock → place → retreat](lesson11_states.png){width=1000}
+
+### 정밀도는 누가 책임지나
+
+![Nav2 · ArUco 도킹 · 카메라 + MoveIt](lesson11_roles.png){width=1000}
+
+### 카메라가 늦을 때: 찍힌 시각과 받은 시각
+
+![첫 시도: side-step 뒤 도킹이 멈춘 이유 (실측)](lesson11_latency.png){width=1000}
+
+- 이 그림과 다음 그림은 같은 코드로 창고 강좌를 만들 때 겪은 문제의 기록 (부스에서는 고친 코드를 그대로 씀)
+
+### 고친 것
+
+![받은 시각 → 찍힌 시각](lesson11_latency_fix.png){width=1000}
+
+## 2. 실행: transport.py
+
+### 실행: 터미널 1 (start)
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+./scripts/robotworld start viewer:=true rviz:=true   # spawn 없음 = 대기 위치(home)
+```
+
+### 실행 결과: 터미널 1
+
+![터미널 1: start (지도 · AMCL 초기 위치 · MoveIt · PickPlace 서버 · 카메라 핸들러)](lesson11_t1.png){width=1000}
+
+### 실행 결과: 시작 화면
+
+![MuJoCo 창과 RViz2: 로봇이 대기 위치(home)](lesson11_run_result.png){width=1000}
+
+### 터미널 2: transport.py
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+time ./scripts/robotworld exec python lessons/07_nav_pick_place/transport.py pink   # drinks → consult_2 (음료대 → 상담 테이블 2)
+```
+
+### 실행 결과: pick 절반
+
+![transport.py pink: 출발 ~ carry](lesson11_cli_pick.png){width=1000}
+
+### 실행 결과: place 절반
+
+![transport.py pink: navigate_place ~ 결과](lesson11_cli_place.png){width=1000}
+
+### 실행 결과: 단계별 요약
+
+![단계별 시작 · 시간 · 달린 거리](lesson11_cli_summary.png){width=1000}
+
+### 지도 위의 경로
+
+![실제 경로 (/ground_truth) 와 Nav2 첫 /plan](lesson11_route.png){width=1000}
+
+### 스테이션 앞: Nav2 도착 → 도킹 끝
+
+![Nav2 도착 · side-step · 도킹 끝 (/ground_truth)](lesson11_arrival.png){width=1000}
+
+### 실행 결과: 장면
+
+![출발 → 잡기 → 든 채 주행 → 도킹 → 놓기 → 끝 (오프스크린 렌더)](lesson11_scenes.png){width=1000}
+
+### 움직이는 그림: 부스를 가로지르는 배달
+
+![운반 (움직이는 그림)](lesson11_transport.gif){width=720}
+
+### 주행 속도
+
+![base 속도와 단계 (실측)](lesson11_speed.png){width=1000}
+
+### 터미널 2: 다른 컵
+
+```bash
+time ./scripts/robotworld exec python lessons/07_nav_pick_place/transport.py blue --to consult_1
+time ./scripts/robotworld exec python lessons/07_nav_pick_place/transport.py yellow --to consult_1
+```
+
+### 실행 결과: 노랑
+
+![transport.py yellow](lesson11_cli_yellow.png){width=1000}
+
+### 세 컵 비교
+
+![분홍 · 파랑 · 노랑 단계별 시간과 결과](lesson11_timeline.png){width=1000}
+
+## 3. 코드와 설정
+
+### map 위치 읽기 - transport.py where 함수 발췌
+
+```python
+# lessons/07_nav_pick_place/transport.py
+def where(self):
+    tf = self.tf.lookup_transform("map", "base_footprint", rclpy.time.Time()).transform   # AMCL + 오도메트리
+    q = tf.rotation
+    yaw = math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
+    return tf.translation.x, tf.translation.y, yaw
+```
+
+- 앞 글의 TF: `map → odom` (AMCL) + `odom → base_footprint` (브리지)
+- `Time()` = 가장 최근 값 · 쿼터니언에서 yaw [rad] 만 꺼냄
+
+### 단계가 바뀔 때 위치 출력 - transport.py on_fb 함수 발췌
+
+```python
+# lessons/07_nav_pick_place/transport.py (이어서)
+goal = PickPlace.Goal(object=colour, from_station=src, to_station=dst, phase="all")   # goal 하나
+
+
+def on_fb(m):
+    f = m.feedback
+    if not rows or rows[-1][0] != f.phase:                    # 단계가 바뀔 때만
+        rows.append((f.phase, time.monotonic() - t0, self.path))
+        p = self.where()
+        print(f"   [{time.monotonic() - t0:5.1f}s] {f.phase:14s} at map ({p[0]:+.2f}, {p[1]:+.2f}, ...)  driven {self.path:5.2f} m")
+```
+
+- `phase="all"`: ⑨ 의 goal 두 번을 한 번으로 · 출발 · 도착 스테이션을 함께 지정
+- feedback 의 `phase` 가 바뀐 순간에만 시각 · map 위치 · 누적 주행 거리 기록
+
+### 두 절반 - pick_place_server.py execute 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/pick_place_server.py
+which = (goal.phase or "all").lower()                         # transport.py 는 "all"
+name, arm, src = self.do_pick(goal, feedback)                 # navigate_pick → dock → locate → grasp → carry
+st, offset = self.do_place(goal, name, arm, feedback)         # navigate_place → dock → place → retreat
+```
+
+- ⑨ 와 같은 서버 · 같은 함수 → 달라진 것은 스테이션 사이를 Nav2 로 가는 것뿐
+- `do_pick` 이 돌려준 `name` · `arm` 을 `do_place` 가 그대로 받음
+
+### place 절반 - pick_place_server.py do_place 함수
+
+```python
+# src/warehouse_skills/warehouse_skills/pick_place_server.py
+def do_place(self, goal, name, arm, feedback):
+    dst = self.resolve_station(goal.to_station or "consult_1")
+    offset = self.free_slot_offset(dst, name, arm)            # 든 팔이 닿는 빈 슬롯 (축 기준)
+    st, mdx, mdy = self.navigate_and_dock(dst, arm, lambda origin, u: 0.0, "navigate_place", feedback)
+    slot_dx = mdx - (st["marker_x"] - st["object_x"])         # 마커면 기준 → base_footprint
+    slot_dy = mdy + offset
+    self.place(arm, name, slot_dx, slot_dy, st["top_z"], feedback)
+    self.moveit.move_named(arm, self.cfg["transport_pose"], self.states)
+    self.nav.drive(-float(self.cfg["dock"]["undock_distance"]))
+    return st, offset
+```
+
+- `free_slot_offset`: 컵을 든 팔 쪽부터 빈 슬롯 선택 (슬롯 목록은 스테이션마다 다름)
+- 슬롯 위치는 map 이 아니라 도킹 결과(`mdx` · `mdy`) 기준 → Nav2 오차와 무관
+- 놓은 뒤 팔을 `transport` 로 접고 후진
+
+### Nav2 로 사전 도킹 지점까지 - pick_place_server.py navigate_and_dock 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/pick_place_server.py
+goal = list(self.locations.goal(key))                         # locations.yaml base_goal
+self.nav.go_to(*goal)                                         # Nav2 navigate_to_pose
+self.nav.settle()                                             # 멈추고 1 s
+```
+
+- Nav2 는 스테이션 앞 `base_goal` 까지만 · 마지막 구간은 마커 도킹이 맡음
+- `settle`: 멈춘 로봇에서 다음 카메라 영상을 얻기 위한 정지 · 대기
+
+### 마커로 옆 오차 맞추고 도킹 - pick_place_server.py navigate_and_dock 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/pick_place_server.py navigate_and_dock (이어서)
+for attempt in range(3):
+    fixes = self.nav.wait_markers(st["markers"])              # 멈춘 뒤 찍힌 마커 쌍
+    along, side, turn, origin, u = self.nav.geometry(fixes, st["offsets"])
+    lateral = side - target_side_fn(origin, u)
+    if abs(lateral) <= float(d["max_lateral_error"]) or attempt == 2:   # 0.05 m
+        break
+    if abs(turn) > 0.03:
+        self.nav.turn(turn)
+    self.nav.sidestep(lateral)                                # 90° 돌기 → 직진 → 되돌기 (오도메트리)
+    self.nav.settle()
+dx, residual = self.nav.dock(st["offsets"], self.cfg["dock"]["target_dx"], target_side, ...)
+```
+
+- 옆 오차가 5 cm 넘으면 90° 돌아 옆걸음(`sidestep`) 으로 보정
+- 최대 2 번 보정 · 그래도 10 cm 넘게 남으면 `SkillError`
+- `geometry`: 마커 쌍 → 스테이션 가장자리까지의 거리(`along`) · 옆(`side`) · 방향(`turn`)
+
+### map 목표 보내기 - nav_client.py _go_to_once 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/nav_client.py
+goal = NavigateToPose.Goal()
+goal.pose.header.frame_id = "map"
+goal.pose.pose.position.x, goal.pose.pose.position.y = float(x), float(y)
+goal.pose.pose.orientation.z, goal.pose.pose.orientation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+handle = wait(self.nav.send_goal_async(goal), 10.0, "navigate_to_pose goal")
+if not handle.accepted:
+    raise SkillError("Nav2 rejected the goal")
+```
+
+- 앞 글의 Nav2 goal 과 같은 `NavigateToPose` 액션 · 좌표계는 `map`
+- 평면 회전이라 yaw 는 쿼터니언의 `z` · `w` 두 값으로 충분
+
+### 결과 기다리기 · 제한 시간 - nav_client.py _go_to_once 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/nav_client.py _go_to_once (이어서)
+future = handle.get_result_async()
+while not future.done():
+    if self.cancel_requested or time.monotonic() > end:       # 180 s
+        handle.cancel_goal_async()
+        raise SkillError("navigation timed out")
+    time.sleep(0.1)
+```
+
+- 취소 요청이나 제한 시간 초과 → Nav2 goal 도 함께 취소 (`cancel_goal_async`)
+- `status` 가 SUCCEEDED 가 아니면 `SkillError` → `go_to` 가 한 번 더 보냄
+
+### 받은 시각 · 찍힌 시각 거르기 - nav_client.py marker 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/nav_client.py
+def marker(self, marker_id, max_age=1.5, since=None):
+    if self.markers is None or time.monotonic() - self.markers_wall > max_age:   # 받은 지 max_age 안
+        return None
+    if since is not None:
+        stamp = self.markers.header.stamp
+        if stamp.sec + stamp.nanosec * 1e-9 < since:          # 찍힌 시각이 since 전이면 버린다
+            return None
+    ...
+```
+
+- `max_age`: 받은 지 얼마나 됐나 (벽시계) · `since`: 언제 찍혔나 (sim 시간)
+- 느린 PC 는 찍은 지 한참 뒤에 발행 → 방금 받았어도 회전 중 영상일 수 있음
+
+### 멈춘 뒤 찍힌 마커 쌍 기다리기 - nav_client.py wait_markers 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/nav_client.py (이어서)
+def wait_markers(self, ids, timeout=10.0, search=True, need=2, max_age=0.7):
+    since = self.now()                                        # 지금 (sim) = 로봇이 멈춘 뒤
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        f = self.fixes(ids, max_age=max_age, since=since)
+        if len(f) >= need:
+            return f
+        time.sleep(0.1)
+    # 안 보이면 제자리에서 좌우로 돌며 찾는다. 찾으면 멈추고 다시 wait_markers (search=False)
+```
+
+- `since` = 부른 순간 → 로봇이 멈춘 뒤에 찍힌 영상만 통과
+- `need=2`: 두 마커가 모두 보여야 스테이션 축을 믿을 수 있음
+
+### sim 시간으로 제한 시간 정하기 - nav_client.py turn 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/nav_client.py
+deadline = self.now() + abs(angle) / speed + 3.0                # sim 시간 (전: 벽시계 → 느린 PC 에서 90° 가 80° 로 끊김)
+guard = time.monotonic() + 4 * (abs(angle) / speed + 3.0)       # 시뮬레이터가 멈췄을 때만
+```
+
+- `deadline` = 예상 회전 시간 + 3 s · 오도메트리와 같은 sim 시계로 잼
+- `guard`: 시뮬레이터가 멈추면 sim 시간도 멈춤 → 벽시계로 한 번 더 막음
+
+### 목표 각도까지 돌기 - nav_client.py turn 함수 발췌
+
+```python
+# src/warehouse_skills/warehouse_skills/nav_client.py turn (이어서)
+while self.now() < deadline and time.monotonic() < guard:
+    q = self.odom.pose.pose.orientation
+    yaw = 2 * math.atan2(q.z, q.w)
+    done = math.atan2(math.sin(yaw - yaw0), math.cos(yaw - yaw0))
+    if sign * done >= abs(angle) - 0.01:
+        break
+    self._publish(0.0, sign * speed)
+    time.sleep(0.05)
+else:
+    self.node.get_logger().warning(f"turn stopped by the deadline at ...")
+```
+
+- `/odom` 의 yaw 변화량으로 회전량 측정 · `atan2(sin, cos)` 로 ±π 넘김 처리
+- `while … else`: `break` 없이 시간으로 끝났을 때만 경고 출력
+
+### 설정 값
+
+![locations.yaml · nav2.yaml · skills.yaml](lesson11_params.png){width=1000}
+
+### locations.yaml 발췌
+
+```yaml
+# src/warehouse_lecture/worlds/locations.yaml
+locations:
+  drinks:
+    aliases: [음료대, 음료 스테이션, 컵 놓는 곳, 음료]
+    center: [7.65, -1.60]
+    base_goal: [7.65, -2.82, 1.5708]     # Nav2 목표 = 사전 도킹 지점 (map x, y, yaw)
+    station: drinks
+  consult_2:
+    aliases: [상담 테이블 2, 2번 상담 테이블, 2번 테이블, 입구 쪽 상담 테이블]
+    center: [6.38, -4.43]
+    base_goal: [5.06, -4.43, 0.0]
+    station: consult_2
+```
+
+- `base_goal`: 스테이션 가장자리에서 약 1 m 앞 · yaw = 스테이션을 바라보는 방향 (음료대 +y, 상담 테이블 +x)
+- `aliases`: 한국어 별칭 → `resolve_station` 이 `drinks` 같은 키로 바꿈
+- 스테이션의 가장자리 · 방향 · 높이는 `booth.yaml` 의 `stations` 에 따로 있음
+
+### 해 볼 것
+
+- `transport.py pink --from consult_2 --to drinks` 로 음료대에 되돌려 놓기
+- `locations.yaml` 의 `consult_2` `base_goal` x 를 4.9 로 바꿔 도킹 시간 비교 (끝나면 5.06 으로 되돌리기)
+- 운반 중 다른 터미널에서 `./scripts/robotworld exec ros2 topic echo /pick_place/_action/feedback` 으로 feedback 직접 보기

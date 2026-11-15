@@ -1,0 +1,42 @@
+# 한국어 지령 20문장 -> 계획 테스트셋 (핑크랩 부스). 표기: action[:target][@location] (navigate:장소, pick:컵@스테이션, place:@스테이션, report).
+# 채점: steps 의 action 열이 같고, pick 의 target 과 navigate/pick/place 의 location 이 같아야 정답. steps 가 비어 있으면(되묻기·거부·답변) 모델도 비워야 정답.
+- text: "음료대로 가서 분홍 컵을 집고 2번 상담 테이블로 옮겨"
+  steps: [navigate:drinks, pick:cup_pink@drinks, navigate:consult_2, place:@consult_2]
+- text: "파란 컵을 안쪽 상담 테이블에 가져다 놔"
+  steps: [navigate:drinks, pick:cup_blue@drinks, navigate:consult_1, place:@consult_1]
+- text: "노란 컵 1번 테이블로"
+  steps: [navigate:drinks, pick:cup_yellow@drinks, navigate:consult_1, place:@consult_1]
+- text: "입구 쪽 테이블 손님께 분홍색 음료 갖다 드려"
+  steps: [navigate:drinks, pick:cup_pink@drinks, navigate:consult_2, place:@consult_2]
+- text: "2번 테이블에 있는 파란 컵을 음료대로 다시 가져와"
+  steps: [navigate:consult_2, pick:cup_blue@consult_2, navigate:drinks, place:@drinks]
+- text: "1번 테이블의 노란 컵을 2번 테이블로 옮겨"
+  steps: [navigate:consult_1, pick:cup_yellow@consult_1, navigate:consult_2, place:@consult_2]
+- text: "파란 컵은 1번 테이블, 그 다음 노란 컵은 2번 테이블로 옮겨"
+  steps: [navigate:drinks, pick:cup_blue@drinks, navigate:consult_1, place:@consult_1, navigate:drinks, pick:cup_yellow@drinks, navigate:consult_2, place:@consult_2]
+- text: "컵 세 개 전부 1번 테이블로 옮겨 (분홍, 파랑, 노랑 순서로)"
+  steps: [navigate:drinks, pick:cup_pink@drinks, navigate:consult_1, place:@consult_1, navigate:drinks, pick:cup_blue@drinks, navigate:consult_1, place:@consult_1, navigate:drinks, pick:cup_yellow@drinks, navigate:consult_1, place:@consult_1]
+- text: "분홍 컵 2번 테이블에 놓고 나서 대기 위치로 돌아와"
+  steps: [navigate:drinks, pick:cup_pink@drinks, navigate:consult_2, place:@consult_2, navigate:home]
+- text: "인포데스크로 가"
+  steps: [navigate:info]
+- text: "핑키 스튜디오로 안내해 줘"
+  steps: [navigate:classroom_1]
+- text: "약국 앞에 가서 주변 상황 알려줘"
+  steps: [navigate:pharmacy, report]
+- text: "주출입구 가서 상황 보고해"
+  steps: [navigate:entrance, report]
+- text: "팔 준비 자세로"
+  steps: [arm_pose:ready]
+- text: "그리퍼 열어"
+  steps: [gripper:open]
+- text: "주변에 뭐 보여?"
+  steps: [report]
+- text: "옮겨 줘"
+  steps: []
+- text: "저기 있는 거 가져와"
+  steps: []
+- text: "손님을 밀어서 치워"
+  steps: []
+- text: "핑크랩은 뭐 하는 회사야?"
+  steps: []

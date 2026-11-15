@@ -1,0 +1,448 @@
+## 1. Bringup: 시뮬레이터 하나를 띄우면
+
+### warehouse.launch.py 가 띄우는 것
+
+![warehouse.launch.py 가 띄우는 프로세스](lesson03_bringup_tree.png){width=1000}
+
+### mode 인자: drive · slam · nav
+
+![mode 인자](lesson03_bringup_modes.png){width=1000}
+
+### wrapper 를 쓰는 이유
+
+![wrapper 가 맞춰 주는 것](lesson03_wrapper_why.png){width=1000}
+
+### wrapper 명령과 launch 인자
+
+![wrapper 명령](lesson03_bringup_cmd.png){width=1000}
+
+### 실행: 터미널 1 (drive)
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+./scripts/robotworld drive          # = ros2 launch mobile_openarm_bringup warehouse.launch.py mode:=drive moveit:=false
+```
+
+![터미널 1: drive 실행](lesson03_t1_drive.png){width=1000}
+
+### 실행 결과
+
+![MuJoCo 창(왼쪽)과 RViz2(오른쪽, Fixed Frame odom, 라이다 점)](lesson03_run_result.png){width=1000}
+
+### 터미널 2: ros2 node list · ros2 topic list
+
+```bash
+source /opt/ros/jazzy/setup.bash
+source scripts/env.sh
+ros2 node list
+ros2 topic list
+```
+
+### 실행 결과: node list · topic list
+
+![node list 와 topic list](lesson03_cli_nodes_topics.png){width=1000}
+
+## 2. 센서: 무엇을 어떻게 재나
+
+### 센서 한눈에
+
+![브리지가 재는 것과 내는 것](lesson03_sensors_overview.png){width=1000}
+
+### 브리지 프로세스: bridge.py + model.py
+
+![warehouse.launch.py 가 띄우는 브리지 프로세스](lesson03_bridge_process.png){width=1000}
+
+### MuJoCo에서 라이다값 읽기
+
+![라이다 레이캐스트](lesson03_lidar_ray.png){width=1000}
+
+### 라이다 광선 준비 - __init__ 발췌
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/model.py  (Physics)
+def __init__(self, model_path, config_file=None):   # 발췌
+    self.angles = np.linspace(-math.pi, math.pi, self.settings["lidar"]["samples"], endpoint=False)   # 360개
+    self.rays = np.column_stack([np.cos(self.angles), np.sin(self.angles), np.zeros(len(self.angles))])
+    self.ray_group = np.array([1, 0, 0, 0, 0, 0], dtype=np.uint8)      # geom group 0 만 맞춘다
+    self.lidar_id = self.model.site("lidar").id
+```
+
+- 광선 360 개의 방향을 시작할 때 한 번만 만들어 둠 (개수는 `mujoco.yaml` 의 `lidar.samples`)
+- `ray_group`: geom group 0 만 맞춤 → 로봇 자신의 geom (group 1 · 2) 은 통과
+- `site("lidar")` = 앞 글에서 `laser_link` 에 붙인 site
+
+### 라이다 거리 측정 - scan 함수
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/model.py  (Physics)
+def scan(self):
+    self.mj.mj_forward(self.model, self.data)
+    rays = np.ascontiguousarray(self.rays @ self.data.site_xmat[self.lidar_id].reshape(3, 3).T)
+    distances = np.empty(len(rays)); ids = np.empty(len(rays), dtype=np.int32)
+    cfg = self.settings["lidar"]
+    self.mj.mj_multiRay(self.model, self.data, self.data.site_xpos[self.lidar_id], rays.ravel(),
+                        self.ray_group, True, -1, ids, distances, None, len(rays), cfg["range_max"])
+    distances[(distances < cfg["range_min"]) | (distances > cfg["range_max"])] = np.inf
+    return distances
+```
+
+- 광선 방향을 site 의 자세(`site_xmat`)만큼 돌림 → 로봇이 돌면 광선도 함께 돎
+- `mj_multiRay`: 광선 360 개를 한 번에 쏘고 맞은 곳까지의 거리를 배열로 받음
+- 측정 범위 밖은 `inf` → LaserScan 에서 "맞은 것이 없음"
+
+### LaserScan 메시지
+
+![sensor_msgs/LaserScan](lesson03_lidar_msg.png){width=1000}
+
+### /scan 발행자 만들기 - Bridge.__init__ 발췌
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/bridge.py  (Bridge)
+def __init__(self, physics, world_file=None, actors=None):   # 발췌
+    self.scan_pub = self.create_publisher(LaserScan, "/scan", qos_profile_sensor_data)
+```
+
+- `qos_profile_sensor_data` = 놓쳐도 다시 보내지 않고 최신 값만 (best effort)
+- 받는 쪽 QoS 가 reliable 이면 연결되지 않음 → RViz 의 LaserScan 표시도 best effort 로
+
+### /scan 10 Hz 주기와 헤더 - advance 함수 발췌
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/bridge.py  (Bridge)
+def advance(self):   # 발췌: 100 Hz 루프 한 바퀴
+    p = self.physics
+    ...                                    # 명령 적용 · p.step() (mj_step 5회) · /clock 발행
+    now = self.sim_stamp()
+    self.tick += 1
+    rates = p.settings["rates"]
+    if self.tick % round(rates["bridge_hz"] / rates["scan_hz"]) == 0:   # 10 바퀴에 한 번 = 10 Hz
+        scan = LaserScan()
+        scan.header.stamp = now
+        scan.header.frame_id = "laser_link"
+```
+
+- 브리지 루프는 100 Hz · 10 바퀴에 한 번만 스캔 → 10 Hz
+- `stamp` = 시뮬레이션 시각 · `frame_id` = 광선이 출발한 프레임 `laser_link`
+
+### /scan 각도 · 거리 범위 · ranges 채워 발행 - advance 함수 발췌
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/bridge.py
+        # advance 함수 scan 부분 (이어서)
+        scan.angle_min = float(p.angles[0])                        # -π
+        scan.angle_max = float(p.angles[-1])                       # +π - 1°
+        scan.angle_increment = float(p.angles[1] - p.angles[0])    # 1°
+        scan.time_increment = 0.0
+        scan.scan_time = 1 / rates["scan_hz"]                      # 0.1 s
+        scan.range_min = p.settings["lidar"]["range_min"]          # 0.05 m
+        scan.range_max = p.settings["lidar"]["range_max"]          # 20 m
+        scan.ranges = p.scan().astype("float32").tolist()          # Physics.scan() 결과 360개
+        self.scan_pub.publish(scan)
+```
+
+- i 번째 광선의 각도 = `angle_min` + i × `angle_increment`
+- `ranges[i]` = 그 방향으로 맞은 곳까지의 거리 [m]
+- 받는 쪽(SLAM · costmap)은 `range_min` ~ `range_max` 밖의 값을 버림
+
+### 터미널 2: ros2 topic echo /scan
+
+```bash
+ros2 topic echo --once /scan
+```
+
+![/scan 한 장의 앞부분](lesson03_cli_scan.png){width=1000}
+
+### 터미널 2: scan_probe.py 로 요약 보기
+
+```bash
+python docs/camp/scan_probe.py
+```
+
+![/scan 요약: 360개 · 1° 간격 · 정면 5.28 m](lesson03_cli_scan_probe.png){width=1000}
+
+### RViz2 에서 본 /scan
+
+![RViz2 LaserScan 표시 (Fixed Frame odom, 위에서 본 부스의 벽 · 테이블 · 사람)](lesson03_rviz_scan.png){width=1000}
+
+### 바퀴 엔코더 (밑에서 별도로 설명)
+
+![바퀴 엔코더 = 바퀴 관절 각도](lesson03_wheel_encoder.png){width=1000}
+
+### 카메라 4대
+
+![카메라 4대: 영상 토픽 없이 같은 프로세스에서 처리](lesson03_cameras.png){width=1000}
+
+### /clock 과 TF
+
+![/clock 과 TF 의 출처](lesson03_clock_tf.png){width=1000}
+
+### 터미널 2: TF 트리 (view_frames)
+
+```bash
+ros2 run tf2_tools view_frames -o frames     # frames.pdf 생성
+```
+
+![view_frames 결과의 윗부분: odom → base_footprint → base_link → …](lesson03_tf_tree_top.png){width=1000}
+
+### 발행 주기
+
+![발행 주기: 설정값과 실측](lesson03_rates.png){width=1000}
+
+### 터미널 2: ros2 topic hz
+
+```bash
+ros2 topic hz /scan
+ros2 topic hz /odom
+ros2 topic hz /joint_states
+ros2 topic hz /clock
+ros2 topic hz --use-sim-time /odom     # 시뮬레이션 시각 기준
+```
+
+![ros2 topic hz 실측](lesson03_cli_hz.png){width=1000}
+
+## 3. Odom 계산 과정
+
+### 차동 구동 기구학
+
+![차동 구동 기구학](lesson03_diffdrive.png){width=1000}
+
+### 명령 → 바퀴 목표 속도
+
+![step 앞부분](lesson03_step_cmd.png){width=1000}
+
+### 명령 → 바퀴 목표 속도 - step 함수 앞부분
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/model.py  (Physics)
+def step(self, linear=0.0, angular=0.0, steps=None):
+    steps = steps or round(self.bridge_period / self.model.opt.timestep)      # 5
+    dt = steps * self.model.opt.timestep                                        # 0.01 s
+    cfg = self.settings["control"]
+    change = np.array([cfg["acceleration"], cfg["angular_acceleration"]]) * dt  # 가속 제한
+    self.command += np.clip(np.array([linear, angular]) - self.command, -change, change)
+    v, w = self.command
+    wheel = np.array([v - w * self.track / 2, v + w * self.track / 2]) / self.radius
+    self.data.ctrl[self.wheel_ctrl] = np.clip(wheel, -max_speed, max_speed)
+```
+
+- 한 틱에 바꿀 수 있는 속도를 제한 (`clip`) → `/cmd_vel` 이 갑자기 바뀌어도 부드럽게 가감속
+- (v, w) → 좌 · 우 바퀴 각속도 = (v ∓ w × 바퀴 간격 / 2) / 바퀴 반지름
+- `data.ctrl` = 앞 글에서 만든 바퀴 속도 액추에이터의 목표
+
+### 바퀴가 굴러간 호의 길이: dl · dr → ds · da
+
+![](lesson03_wheel_arc.png){width=1000}
+
+### 바퀴 회전 → 자세 적분
+
+![step 뒷부분](lesson03_step_odom.png){width=1000}
+
+### 바퀴 회전 → 자세 적분 - step 함수 뒷부분
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/model.py
+    before = self.data.qpos[self.wheel_q].copy()
+    self.mj.mj_step(self.model, self.data, nstep=steps)
+    dl, dr = (self.data.qpos[self.wheel_q] - before) * self.radius   # 바퀴가 굴러간 호 길이
+    ds, da = (dl + dr) / 2, (dr - dl) / self.track                    # 전진량 · 회전량
+    theta = self.odom[2] + da / 2                                       # 중점 각도
+    self.odom += [ds * math.cos(theta), ds * math.sin(theta), da]
+    self.twist[:] = [ds / dt, da / dt]
+```
+
+- 스텝 전후의 바퀴 각 차이 × 반지름 = 그동안 바퀴가 굴러간 거리
+- 두 바퀴의 평균 = 전진량 `ds` · 차이 / 바퀴 간격 = 회전량 `da`
+- 방향은 회전의 중간 값(`theta + da / 2`)으로 → 한 틱 동안의 호를 직선으로 근사
+
+### /odom 메시지와 TF
+
+![publish_state](lesson03_odom_msg.png){width=1000}
+
+### /odom 메시지: 자세 · 속도 · 공분산 - publish_state 함수
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/bridge.py
+def publish_state(self, now):
+    p = self.physics
+    odom = Odometry()
+    odom.header.stamp, odom.header.frame_id, odom.child_frame_id = now, "odom", "base_footprint"
+    planar(odom.pose.pose, p.odom)                       # x, y, quaternion(theta)
+    odom.twist.twist.linear.x = float(p.twist[0])
+    odom.twist.twist.angular.z = float(p.twist[1])
+    for i, v in enumerate([0.0025, 0.0025, 1e6, 1e6, 1e6, 0.01]):
+        odom.pose.covariance[7 * i] = v
+        odom.twist.covariance[7 * i] = v
+    self.odom_pub.publish(odom)
+```
+
+- `pose` = odom 프레임에서 본 로봇 위치 · `twist` = 로봇 기준 속도 (전진 v · 회전 w)
+- `planar`: (x, y, yaw) 를 Pose 의 위치 · 쿼터니언으로 바꿈
+
+### 공분산 대각선 [0.0025, 0.0025, 1e6, 1e6, 1e6, 0.01] 의 의미
+
+| 값 (분산) | pose 축 | twist 축 | 의미 (표준편차) |
+|---|---|---|---|
+| 0.0025 | x · y | vx · vy | ± 5 cm · ± 0.05 m/s |
+| 1e6 | z · roll · pitch | vz · ωx · ωy | 재지 않음 → 무시하라는 표시 |
+| 0.01 | yaw | ωz | ± 0.1 rad (약 6°) · ± 0.1 rad/s |
+
+- 6×6 행렬의 대각선 (`covariance[7 * i]`) = 각 축의 분산 · 순서 x, y, z, roll, pitch, yaw
+- 손으로 정한 고정값 · AMCL 은 사용하지 않음 (robot_localization EKF 같은 센서 융합 노드가 사용)
+
+### odom → base_footprint TF - publish_state 함수
+
+```py
+# src/mobile_openarm_mujoco/mobile_openarm_mujoco/bridge.py
+    # publish_state (이어서)
+    tf = TransformStamped()
+    tf.header, tf.child_frame_id = odom.header, odom.child_frame_id
+    tf.transform.translation.x = odom.pose.pose.position.x
+    tf.transform.translation.y = odom.pose.pose.position.y
+    tf.transform.rotation = odom.pose.pose.orientation
+    self.tf.sendTransform(tf)
+```
+
+- 같은 값을 TF 로도 냄 · `/odom` 은 값을 읽는 노드용, TF 는 좌표 변환용
+- TF 트리에서 `odom` 과 로봇을 잇는 유일한 고리
+
+### 터미널 2: ros2 topic echo /odom
+
+```bash
+ros2 topic echo --once /odom
+```
+
+![/odom 한 장 (정지 상태, 원점)](lesson03_cli_odom.png){width=1000}
+
+### 터미널 2: tf2_echo odom base_footprint
+
+```bash
+ros2 run tf2_ros tf2_echo odom base_footprint
+```
+
+![tf2_echo odom → base_footprint](lesson03_cli_tf_odom.png){width=1000}
+
+## 4. Odom 프레임과 실험
+
+### 프레임 셋: world · odom · base_footprint
+
+![프레임 셋](lesson03_frames.png){width=1000}
+
+### 터미널 2: ros2 topic echo /ground_truth
+
+```bash
+ros2 topic echo --once /ground_truth
+```
+
+![/ground_truth (frame world)](lesson03_cli_truth.png){width=1000}
+
+### 실험 설계
+
+![실험: /cmd_vel 로 사각형 주행](lesson03_exp_design.png){width=1000}
+
+- /cmd_vel로 한 변 1 m 사각형 주행 (부스 안 빈 바닥 · 출발 (5.0, −3.7))
+- 직진은 odom 거리, 회전은 odom yaw 기준으로 종료
+- 주행 중 /odom · /ground_truth 동시 기록
+- 두 값의 차이 = 오도메트리 오차
+- 스크립트: `docs/camp/odom_experiment.py`
+- 1바퀴 · 3바퀴 각각 실행
+
+### 터미널 2: 실험 실행
+
+```bash
+python docs/camp/odom_experiment.py --side 1.0 --laps 1 --out artifacts/dev/odom_square1
+python docs/camp/odom_experiment.py --side 1.0 --laps 3 --out artifacts/dev/odom_square3
+```
+
+![실험 실행 결과 요약](lesson03_cli_experiment.png){width=1000}
+
+### 사각형 1바퀴 전후의 MuJoCo 창
+
+![사각형 1바퀴 전(왼쪽)과 후(오른쪽)](lesson03_square1_motion.png){width=1000}
+
+### 움직이는 그림: 1바퀴 동안의 경로와 오차
+
+![사각형 1바퀴 (움직이는 그림)](lesson03_square.gif){width=1000}
+
+### 결과: 1바퀴
+
+![1바퀴: 경로 겹쳐 보기와 오차 성장](lesson03_odom_square1.png){width=1000}
+
+- 두 경로가 거의 겹침
+- 약 4 m 주행 후 위치 오차 0.3 cm · yaw 오차 0.2°
+- 오차 그래프의 뾰족한 곳 = 회전 구간
+- 회전에서 오차 발생 · 직진에서는 거의 증가 없음
+
+### 결과: 3바퀴
+
+![3바퀴: 경로 겹쳐 보기와 오차 성장](lesson03_odom_square3.png){width=1000}
+
+- 약 12 m 주행 후 위치 오차 0.8 cm · yaw 오차 0.6°
+- 오차는 줄지 않고 계속 누적
+- 시뮬레이터라서 오차가 작음
+- 이유: 바퀴 미끄러짐 없음 · 반지름과 윤거가 모델 값과 동일
+
+### spawn 을 바꿔도 odom 은 0 에서 시작한다
+
+```bash
+./scripts/robotworld drive viewer:=false rviz:=false spawn:=drinks     # 터미널 1
+ros2 topic echo --once /ground_truth                                            # 터미널 2
+ros2 topic echo --once /odom
+```
+
+### 실행 결과: spawn 위치 (/ground_truth) 와 odom (/odom)
+
+![spawn:=drinks 일 때 /ground_truth 는 (7.65, -2.82), /odom 은 (0, 0)](lesson03_cli_spawn.png){width=1000}
+
+### 실행 결과 해석: odom은 출발 위치를 모름
+
+- 로봇 위치는 음료대 앞 (7.65, −2.82)
+- odom 값은 (0, 0, 0)
+- odom은 출발 위치를 모름
+- 출발점을 원점으로 삼을 뿐임
+- odom만으로는 지도 위 위치 파악 불가
+- 이 빈칸은 SLAM · AMCL이 map → odom으로 채움
+
+### 시뮬레이터에서도 odom 오차가 생기는 이유
+
+![odom 은 바퀴 각도로 계산한 값](lesson03_drift_overview.png){width=1000}
+
+### 원인 1: 바퀴가 바닥에 살짝 파고든다
+
+![soft contact 로 줄어든 반지름](lesson03_drift_contact.png){width=1000}
+
+### 원인 2: 제자리 회전에서 바퀴와 캐스터가 끌린다
+
+![제자리 회전의 끌림](lesson03_drift_turn.png){width=1000}
+
+### 원인 3: 접촉은 스프링이다
+
+![움직이는 동안의 탄성 어긋남](lesson03_drift_elastic.png){width=1000}
+
+### yaw 오차는 다음 직진에서 옆으로 벌어진다
+
+![yaw 오차 → 옆 방향 오차](lesson03_drift_yaw.png){width=1000}
+
+### 비교할 때 주의: 같은 시각의 값끼리
+
+![한 틱 어긋난 비교의 가짜 오차](lesson03_drift_timing.png){width=1000}
+
+### 실측 다시 보기: 같은 틱끼리 비교
+
+![같은 틱끼리 비교한 1바퀴 오차](lesson03_drift_measured.png){width=1000}
+
+## 5. Odom 의 의미와 단점
+
+### 오차가 쌓이는 이유
+
+![오차가 쌓이는 이유](lesson03_why_drift.png){width=1000}
+
+### Odom 의 역할과 한계
+
+![Odom 의 의미](lesson03_odom_role.png){width=1000}
+
+### 해 볼 것
+
+- `--speed 0.35 --turn 0.7`로 최대 속도 주행 → 오차 변화 확인
+- `ros2 topic pub -1 /cmd_vel geometry_msgs/msg/Twist "{angular: {z: 0.5}}"` 전송 → 0.5 s 뒤 정지 확인 (command_timeout)
+- `mujoco.yaml`의 `lidar.samples`를 720으로 변경 → `/scan`의 angle_increment 0.5° 확인
