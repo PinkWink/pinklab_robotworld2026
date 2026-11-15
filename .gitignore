@@ -8,3 +8,4 @@ __pycache__/
 .venv*/
 .env
 logs/
+lessons/01_mujoco_ros2/two_link_arm_from_urdf.xml

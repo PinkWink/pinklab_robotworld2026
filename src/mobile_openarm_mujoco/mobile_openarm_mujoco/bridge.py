@@ -243,15 +243,17 @@ def parse_size(text):
 
 
 def show_simple_meshes(model):
-    """Viewer draws collision hulls (group 1, made opaque) instead of the visual meshes.
+    """Viewer draws the robot's collision hulls (group 1, made opaque) instead of its visual meshes.
 
-    Visual meshes move from group 2 to 3: the viewer's default groups (0-2) skip them,
-    CameraRig draws group 3 too. Visual primitives (floor lines, ArUco plates) stay in 2.
+    The robot's visual meshes move from group 2 to 3: the viewer's default groups (0-2) skip them,
+    CameraRig draws group 3 too. Visual primitives (floor lines, ArUco plates) and the booth's own
+    meshes (signs, banner) stay in 2: the booth is a few thousand triangles, the robot 2.7 million.
     Only geom_group and geom_rgba change, which physics and the lidar never read.
     """
-    visual = (model.geom_group == 2) & (model.geom_type == mujoco.mjtGeom.mjGEOM_MESH)
+    robot = model.body_rootid[model.geom_bodyid] == model.body("base_footprint").id
+    visual = robot & (model.geom_group == 2) & (model.geom_type == mujoco.mjtGeom.mjGEOM_MESH)
     model.geom_group[visual] = 3
-    model.geom_rgba[model.geom_group == 1] = (0.72, 0.74, 0.78, 1.0)
+    model.geom_rgba[robot & (model.geom_group == 1)] = (0.72, 0.74, 0.78, 1.0)
 
 
 def main(args=None):
@@ -389,10 +391,12 @@ def main(args=None):
             if options.viewer_simple_meshes:
                 show_simple_meshes(p.model)
             viewer = mujoco.viewer.launch_passive(p.model, p.data)
-            viewer.cam.lookat[:] = [0, 0, 0.5]
-            viewer.cam.distance = 14
-            viewer.cam.azimuth = 130
-            viewer.cam.elevation = -50
+            # Start view: the whole booth, centred on where the robot starts (the consult zone in the middle).
+            world = load_world()
+            viewer.cam.lookat[:] = [*world["spawn"][:2], 0.5]
+            viewer.cam.distance = 1.5 * max(world["size"])
+            viewer.cam.azimuth = 120
+            viewer.cam.elevation = -45
             if not options.viewer_simple_meshes:
                 viewer.opt.geomgroup[1] = 0
             if options.no_viewer_shadows:

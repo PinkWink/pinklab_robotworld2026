@@ -1,8 +1,9 @@
 # 운반 스킬 파라미터. 거리는 m, 각도는 rad. 좌표는 base_footprint 기준(dx 앞, dy 왼쪽).
 dock:
   # Nav2는 locations.yaml의 base_goal(사전 도킹 지점)까지만. 그 뒤는 ArUco 마커 기준 시각 서보.
-  target_dx: 0.47        # 도킹 완료 시 base_footprint에서 마커 평면까지 전방 거리. 부스의 마커는 테이블 가장자리에 있으므로
-                         # 로봇 중심 → 가장자리 0.47 m (강좌 창고와 같은 팔 도달 거리: 물체까지 0.47 + 0.055)
+  target_dx: 0.43        # 도킹 완료 시 base_footprint에서 마커 평면(테이블 가장자리)까지 전방 거리. 컵까지 0.43 + 0.055 + 잔차.
+                         # 0.47 이면 가운데 컵을 잡는 손끝이 팔 길이의 97 % 까지 뻗어 직선 경로(접근 · 들기 · 운반점)가 중간에 끊긴다.
+                         # 베이스 앞면 0.30 m · 접은 팔 손끝 0.33 m 이므로 테이블 면까지 10 cm 남는다
   visual_end_dx: 0.80    # 이 거리(카메라에서 0.47m)부터는 바깥 마커가 시야를 벗어나므로 오도메트리로 직진
   max_speed: 0.10
   blind_speed: 0.06
@@ -40,7 +41,8 @@ moveit:
   cartesian_step: 0.01
   cartesian_min_fraction: 0.9
 transport_pose: transport
-carry_pose: hands_up     # tcp 0.86m: 컵(바닥 0.795 m)이 베이스 상판과 테이블 상판(0.72 ~ 0.75 m)에 닿지 않는다. drive_poses.yaml에 있어야 함
+carry_pose: carry        # 손 방향이 집을 때와 같은 운반 자세 (컵이 뒤집히지 않는다). SRDF 와 drive_poses.yaml 에 있어야 함
+carry_tcp: [0.34, 0.153, 0.86]   # carry 자세의 tcp (base_footprint, 왼팔 기준 · 오른팔은 y 부호 반대): 컵 바닥 0.795 m 가 베이스 상판 · 테이블 상판(0.72 ~ 0.75 m) 위를 지난다
 arms:
   left: {shoulder_y: 0.093, tcp_link: openarm_left_hand_tcp, group: left_arm, gripper: left_gripper_controller, hand_link: openarm_left_hand}
   right: {shoulder_y: -0.093, tcp_link: openarm_right_hand_tcp, group: right_arm, gripper: right_gripper_controller, hand_link: openarm_right_hand}

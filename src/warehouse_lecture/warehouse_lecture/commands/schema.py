@@ -81,7 +81,7 @@ class RobotCommand(BaseModel):
             elif self.source.value not in STATIONS or self.destination.value not in STATIONS:
                 problems.append("컵은 음료대 · 1번 상담 테이블 · 2번 상담 테이블 사이에서만 옮길 수 있다")
             if self.source == self.destination:
-                problems.append("출발 작업대와 도착 작업대가 같다")
+                problems.append("출발 스테이션과 도착 스테이션이 같다")
         elif i == Intent.go_to:
             if self.destination == Place.none:
                 problems.append("목적지가 없다")
@@ -119,7 +119,8 @@ class RobotCommand(BaseModel):
         """Short Korean description for logs and confirmations."""
         t = TARGET_KO.get(self.target, self.target)
         if self.intent == Intent.move_object:
-            return f"{t}를 {self.source.value}에서 {self.destination.value}로 옮기기"
+            josa = "을" if (ord(t[-1]) - 0xAC00) % 28 else "를"            # 받침이 있으면 을 (컵을), 없으면 를
+            return f"{t}{josa} {self.source.value}에서 {self.destination.value}로 옮기기"
         if self.intent == Intent.go_to:
             return f"{self.destination.value}로 이동"
         if self.intent == Intent.find:

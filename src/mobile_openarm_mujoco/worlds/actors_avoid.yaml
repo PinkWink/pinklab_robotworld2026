@@ -1,0 +1,20 @@
+# 충돌 회피 실습용 배우: 지도에 없는 서 있는 관람객 한 명.
+# 기본 실행에는 들어가지 않는다. 쓰려면:  ./scripts/robotworld nav moveit:=false actors:=$PWD/src/mobile_openarm_mujoco/worlds/actors_avoid.yaml
+# 처음에는 부스 밖 통로에 서 있고, docs/camp/avoid_scenario.py 가 /warehouse/set_actor 로 길 위에 옮겨 세운다.
+# 좌표는 MuJoCo world(m), yaw 는 rad.
+colors:
+  navy: [0.16, 0.22, 0.42, 1]
+  skin: [0.87, 0.70, 0.56, 1]
+  pants: [0.20, 0.20, 0.28, 1]
+  helmet: [0.98, 0.85, 0.10, 1]
+  orange_vest: [1.00, 0.45, 0.05, 1]
+  green_vest: [0.55, 1.00, 0.10, 1]
+
+actors:
+- name: visitor_standing
+  kind: person
+  helmet: false
+  vest: none
+  shirt: navy
+  height: 1.72
+  pose: [10.5, -7.5, 1.57]

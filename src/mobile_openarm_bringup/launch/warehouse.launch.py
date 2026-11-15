@@ -27,17 +27,16 @@ _lock = None
 # Per-profile defaults; sim_config.yaml overrides them, launch arguments override both.
 # "" for camera_* means the cameras.yaml value.
 PROFILES = {
-    "full": dict(viewer_shadows="true", viewer_meshes="visual", camera_shadows="true",
-                 camera_names="", camera_size="", camera_fps="", rviz_fps="30"),
-    "lite": dict(viewer_shadows="false", viewer_meshes="visual", camera_shadows="true",
+    # high: what the booth has been run and recorded with. low: one step down for integrated graphics.
+    "high": dict(viewer_shadows="false", viewer_meshes="visual", camera_shadows="true",
                  camera_names="base_camera,head_camera", camera_size="320x240", camera_fps="2", rviz_fps="15"),
-    "minimal": dict(viewer_shadows="false", viewer_meshes="simple", camera_shadows="false",
-                    camera_names="base_camera,head_camera", camera_size="320x240", camera_fps="2", rviz_fps="10"),
+    "low": dict(viewer_shadows="false", viewer_meshes="simple", camera_shadows="false",
+                camera_names="base_camera,head_camera", camera_size="320x240", camera_fps="2", rviz_fps="10"),
 }
 CHOICES = dict(profile=list(PROFILES), viewer=["true", "false"], rviz=["true", "false"],
                viewer_shadows=["true", "false"], viewer_meshes=["visual", "simple"],
                camera_shadows=["true", "false"])
-SETTINGS = ["profile", "viewer", "rviz", *PROFILES["full"]]
+SETTINGS = ["profile", "viewer", "rviz", *PROFILES["high"]]
 
 
 def config_file(context):
@@ -68,7 +67,7 @@ def load_settings(context):
         return value
 
     s = {k: pick(k) for k in SETTINGS}
-    s["profile"] = s["profile"] or "lite"
+    s["profile"] = s["profile"] or "high"
     s["viewer"] = s["viewer"] or "true"
     s["rviz"] = s["rviz"] or "true"
     if s["profile"] not in PROFILES:
@@ -81,13 +80,27 @@ def load_settings(context):
     return path if path.exists() else None, s
 
 
-def rviz_config(path, fps, root):
-    """A copy of the RViz config redrawn at fps instead of 30 (15 FPS = half the GPU load)."""
-    if fps == "30":
+def rviz_config(path, fps, root, centre=None):
+    """A copy of the RViz config redrawn at fps instead of 30 (15 FPS = half the GPU load), top view moved to centre."""
+    if fps == "30" and centre is None:
         return str(path)
+    text = path.read_text().replace("Frame Rate: 30", f"Frame Rate: {int(fps)}")
+    if centre is not None:
+        text = text.replace("      Scale: 110\n      X: 0\n      Y: 0", f"      Scale: 85\n      X: {centre[0]:.2f}\n      Y: {centre[1]:.2f}")
     copy = root / f"{path.stem}_{fps}fps.rviz"
-    copy.write_text(path.read_text().replace("Frame Rate: 30", f"Frame Rate: {int(fps)}"))
+    copy.write_text(text)
     return str(copy)
+
+
+def booth_centre(mode):
+    """Middle of the booth in the RViz fixed frame: world for nav (package map), the start pose for drive · slam."""
+    import yaml
+
+    world = yaml.safe_load((Path(get_package_share_directory("mobile_openarm_mujoco")) / "worlds/booth.yaml").read_text())
+    cx, cy = world["size"][0] / 2, -world["size"][1] / 2       # the booth spans X 0..9, Y -6..0
+    if mode == "nav":
+        return cx, cy
+    return cx - world["spawn"][0], cy - world["spawn"][1]
 
 
 def setup(context):
@@ -226,7 +239,7 @@ def setup(context):
                 executable="rviz2",
                 arguments=[
                     "-d",
-                    rviz_config(nav / "config/navigation.rviz", s["rviz_fps"], root),
+                    rviz_config(nav / "config/navigation.rviz", s["rviz_fps"], root, booth_centre(mode)),
                     "-f",
                     "odom" if mode == "drive" else "map",
                 ],

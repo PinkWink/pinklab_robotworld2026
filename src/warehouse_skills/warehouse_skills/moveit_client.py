@@ -102,35 +102,42 @@ class MoveItClient:
     def arm_joints(self, side):
         return [f"openarm_{side}_joint{i}" for i in range(1, 8)]
 
-    def solve_ik(self, side, pose, avoid_collisions=True):
-        """Best IK solution (closest to the current joints) among several KDL restarts."""
+    def ik_solutions(self, side, pose, avoid_collisions=True, seeds=()):
+        """Distinct IK solutions, closest to the current joints first. KDL restarts from the current joints and from
+        each extra seed (7 joint values), so different arm configurations of the same hand pose show up."""
         arm = self.arms[side]
         names = self.arm_joints(side)
-        seed = np.array([self.joints.get(n, 0.0) for n in names])
-        best = None
-        for _ in range(int(self.cfg["moveit"]["ik_attempts"])):
-            req = GetPositionIK.Request()
-            r = req.ik_request
-            r.group_name, r.ik_link_name = arm["group"], arm["tcp_link"]
-            r.avoid_collisions = avoid_collisions
-            r.timeout.nanosec = 200_000_000
-            r.pose_stamped = PoseStamped()
-            r.pose_stamped.header.frame_id = "base_footprint"
-            r.pose_stamped.pose = pose
-            r.robot_state.is_diff = True
-            r.robot_state.joint_state.name = names
-            r.robot_state.joint_state.position = seed.tolist()
-            res = wait(self.ik.call_async(req), 5.0, "compute_ik")
-            if res.error_code.val != MoveItErrorCodes.SUCCESS:
-                continue
-            q = dict(zip(res.solution.joint_state.name, res.solution.joint_state.position))
-            sol = np.array([q[n] for n in names])
-            cost = float(np.linalg.norm(sol - seed))
-            if best is None or cost < best[0]:
-                best = (cost, sol)
-        if best is None:
+        current = np.array([self.joints.get(n, 0.0) for n in names])
+        found = []
+        attempts = int(self.cfg["moveit"]["ik_attempts"])
+        for seed in [current] + [np.asarray(x, dtype=float) for x in seeds]:
+            for _ in range(attempts if seed is current else max(2, attempts // 4)):
+                req = GetPositionIK.Request()
+                r = req.ik_request
+                r.group_name, r.ik_link_name = arm["group"], arm["tcp_link"]
+                r.avoid_collisions = avoid_collisions
+                r.timeout.nanosec = 200_000_000
+                r.pose_stamped = PoseStamped()
+                r.pose_stamped.header.frame_id = "base_footprint"
+                r.pose_stamped.pose = pose
+                r.robot_state.is_diff = True
+                r.robot_state.joint_state.name = names
+                r.robot_state.joint_state.position = seed.tolist()
+                res = wait(self.ik.call_async(req), 5.0, "compute_ik")
+                if res.error_code.val != MoveItErrorCodes.SUCCESS:
+                    continue
+                q = dict(zip(res.solution.joint_state.name, res.solution.joint_state.position))
+                sol = np.array([q[n] for n in names])
+                if all(np.max(np.abs(sol - f)) > 0.05 for f in found):
+                    found.append(sol)
+        return sorted(found, key=lambda sol: float(np.linalg.norm(sol - current)))
+
+    def solve_ik(self, side, pose, avoid_collisions=True):
+        """Best IK solution (closest to the current joints) among several KDL restarts."""
+        found = self.ik_solutions(side, pose, avoid_collisions)
+        if not found:
             raise SkillError(f"No IK solution for {side} arm at ({pose.position.x:.2f}, {pose.position.y:.2f}, {pose.position.z:.2f})")
-        return best[1]
+        return found[0]
 
     def move_joints(self, side, positions, timeout=60.0):
         goal = MoveGroup.Goal()
@@ -151,12 +158,17 @@ class MoveItClient:
         req.goal_constraints = [c]
         goal.planning_options.planning_scene_diff.is_diff = True
         goal.planning_options.planning_scene_diff.robot_state.is_diff = True
-        handle = wait(self.move.send_goal_async(goal), 10.0, "move_action goal")
-        if not handle.accepted:
-            raise SkillError("MoveIt rejected the joint goal")
-        result = wait(handle.get_result_async(), timeout, "move_action result")
-        code = result.result.error_code.val
-        if code != MoveItErrorCodes.SUCCESS:
+        for attempt in (1, 2):
+            handle = wait(self.move.send_goal_async(goal), 10.0, "move_action goal")
+            if not handle.accepted:
+                raise SkillError("MoveIt rejected the joint goal")
+            result = wait(handle.get_result_async(), timeout, "move_action result")
+            code = result.result.error_code.val
+            if code == MoveItErrorCodes.SUCCESS:
+                return
+            if code == MoveItErrorCodes.CONTROL_FAILED and attempt == 1:
+                time.sleep(1.5)        # the bridge rejects arm trajectories while the base is still moving: once more
+                continue
             raise SkillError(f"MoveIt joint motion failed (error_code={code})")
 
     def move_named(self, side, name, srdf_states):
@@ -165,13 +177,17 @@ class MoveItClient:
     def move_pose(self, side, pose):
         self.move_joints(side, self.solve_ik(side, pose))
 
-    def move_cartesian(self, side, waypoints, timeout=60.0):
-        """Straight-line motion of the TCP through waypoints (base_footprint frame)."""
+    def plan_cartesian(self, side, waypoints, start=None):
+        """Straight-line TCP path through waypoints (base_footprint frame). start: arm joints to plan from
+        (default: where the arm is now). Returns (fraction, trajectory) without moving."""
         arm = self.arms[side]
         m = self.cfg["moveit"]
         req = GetCartesianPath.Request()
         req.header.frame_id = "base_footprint"
         req.start_state.is_diff = True
+        if start is not None:
+            req.start_state.joint_state.name = self.arm_joints(side)
+            req.start_state.joint_state.position = [float(v) for v in start]
         req.group_name, req.link_name = arm["group"], arm["tcp_link"]
         req.waypoints = list(waypoints)
         req.max_step = float(m["cartesian_step"])
@@ -180,16 +196,53 @@ class MoveItClient:
         req.max_velocity_scaling_factor = float(m["velocity_scaling"])
         req.max_acceleration_scaling_factor = float(m["acceleration_scaling"])
         res = wait(self.cartesian.call_async(req), 10.0, "compute_cartesian_path")
-        if res.error_code.val != MoveItErrorCodes.SUCCESS or res.fraction < float(m["cartesian_min_fraction"]):
-            raise SkillError(f"Cartesian path covers only {res.fraction * 100:.0f}% (error_code={res.error_code.val})")
-        goal = ExecuteTrajectory.Goal(trajectory=res.solution)
+        ok = res.error_code.val == MoveItErrorCodes.SUCCESS
+        return (res.fraction if ok else 0.0), res.solution, res.error_code.val
+
+    def move_cartesian(self, side, waypoints, timeout=60.0):
+        """Straight-line motion of the TCP through waypoints (base_footprint frame)."""
+        fraction, solution, code = self.plan_cartesian(side, waypoints)
+        if fraction < float(self.cfg["moveit"]["cartesian_min_fraction"]):
+            raise SkillError(f"Cartesian path covers only {fraction * 100:.0f}% (error_code={code})")
+        goal = ExecuteTrajectory.Goal(trajectory=solution)
         handle = wait(self.execute.send_goal_async(goal), 10.0, "execute_trajectory goal")
         if not handle.accepted:
             raise SkillError("MoveIt rejected the Cartesian trajectory")
         result = wait(handle.get_result_async(), timeout, "execute_trajectory result")
         if result.result.error_code.val != MoveItErrorCodes.SUCCESS:
             raise SkillError(f"Cartesian execution failed (error_code={result.result.error_code.val})")
-        return res.fraction
+        return fraction
+
+    def move_pose_then_cartesian(self, side, pose, waypoints, seeds=(), at_pose=None, then=()):
+        """Go to ``pose`` with an arm configuration from which the straight path through ``waypoints`` exists, then
+        follow that path (``at_pose()`` is called in between). The hand pose has several IK solutions; from some of them
+        the straight path stops at a joint limit, so every solution is checked (planning only) before the arm moves.
+        ``then``: later waypoints of the same task (lift, retreat, carry point). A solution from which the straight
+        path continues through them is preferred, so the arm does not have to change configuration with the object
+        in the hand. Returns "full" or "partial" (only ``waypoints`` were feasible)."""
+        found = self.ik_solutions(side, pose, seeds=seeds)
+        if not found:
+            raise SkillError(f"No IK solution for {side} arm at ({pose.position.x:.2f}, {pose.position.y:.2f}, {pose.position.z:.2f})")
+        need, best, partial = float(self.cfg["moveit"]["cartesian_min_fraction"]), 0.0, None
+        chosen, kind = None, "full"
+        for sol in found:
+            fraction, _, _ = self.plan_cartesian(side, waypoints, start=sol)
+            best = max(best, fraction)
+            if fraction < need:
+                continue
+            if not then or self.plan_cartesian(side, list(waypoints) + list(then), start=sol)[0] >= 0.999:
+                chosen = sol
+                break
+            partial = sol if partial is None else partial
+        if chosen is None:
+            chosen, kind = partial, "partial"
+        if chosen is None:
+            raise SkillError(f"Cartesian path covers only {best * 100:.0f}% from any of {len(found)} IK solutions")
+        self.move_joints(side, chosen)
+        if at_pose:
+            at_pose()
+        self.move_cartesian(side, waypoints)
+        return kind
 
     # --- gripper --------------------------------------------------------
     def gripper(self, side, position, effort, timeout=15.0):

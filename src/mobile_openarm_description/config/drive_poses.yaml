@@ -2,7 +2,8 @@
 # 모든 자세의 hand_tcp는 Nav2 footprint(0.76 x 0.64 m) 안에 있어야 한다.
 #   transport: tcp (0.295, ±0.153, 0.551) - 기본 주행 자세
 #   ready:     tcp (0.321, ±0.153, 0.729) - 팔 준비 자세
-#   hands_up:  tcp (0.286, ±0.153, 0.864) - 물체 운반 자세 (상자가 베이스 상판과 작업대 상판 위를 지난다)
+#   hands_up:  tcp (0.286, ±0.153, 0.864) - 팔을 든 자세 (손이 위·뒤를 향한다: 든 물체가 약 155° 뒤집힌다)
+#   carry:     tcp (0.340, ±0.153, 0.860) - 물체 운반 자세. 손 방향이 집을 때와 같아 컵이 선 채로 간다 (컵 앞면 0.365 m < footprint 0.38 m)
 transport:
   openarm_left_joint1: 0.0
   openarm_left_joint2: 0.0
@@ -48,3 +49,18 @@ hands_up:
   openarm_right_joint5: 0.0
   openarm_right_joint6: 0.0
   openarm_right_joint7: 0.0
+carry:
+  openarm_left_joint1: 0.93
+  openarm_left_joint2: -2.3726
+  openarm_left_joint3: -0.4355
+  openarm_left_joint4: 2.3729
+  openarm_left_joint5: 0.387
+  openarm_left_joint6: -0.7903
+  openarm_left_joint7: 1.3904
+  openarm_right_joint1: -0.93
+  openarm_right_joint2: 2.3726
+  openarm_right_joint3: 0.4355
+  openarm_right_joint4: 2.3729
+  openarm_right_joint5: -0.387
+  openarm_right_joint6: 0.7903
+  openarm_right_joint7: -1.3904

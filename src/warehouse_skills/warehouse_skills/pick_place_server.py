@@ -195,6 +195,11 @@ class PickPlaceServer(Node):
         feedback("dock", 1.0, f"docked: plane dx={dx:.3f}, axis dy={dy:+.3f} (lateral residual {residual:+.3f})")
         return st, dx, dy
 
+    def arm_seeds(self, arm):
+        """Extra IK seeds: the named poses of this arm (transport, carry ...)."""
+        names = self.moveit.arm_joints(arm)                    # self.states[arm] also holds the gripper states (open, closed)
+        return [[pose[j] for j in names] for pose in self.states[arm].values() if all(j in pose for j in names)]
+
     def grasp(self, arm, name, feedback, rel=None):
         g = self.cfg["grasp"]
         size = self.cfg["objects"][name]["size"]
@@ -202,21 +207,31 @@ class PickPlaceServer(Node):
         z = dz + float(g["z_offset"])
         feedback("locate", 1.0, f"{name} at dx={dx:.3f} dy={dy:+.3f} z={dz:.3f}")
         self.moveit.gripper(arm, g["open"], g["effort"])
-        # Pre-grasp: start as far back as the arm can reach; shrink the offset if IK fails.
+        # Pre-grasp: start as far back as the arm can reach; shrink the offset if it fails. The pre-grasp joints are
+        # chosen so that the straight approach exists from there (see move_pose_then_cartesian).
         offsets = [float(g["pre_offset_x"]), float(g["pre_offset_x"]) * 0.6, float(g["pre_offset_x"]) * 0.3]
         last_error = None
+        # What follows the grasp with the cup in the hand: lift, retreat, pull in to the carry point. An arm configuration
+        # that can do all of it in straight lines keeps the hand orientation, i.e. the cup upright, the whole way.
+        cx, cy, cz = (float(v) for v in self.cfg["carry_tcp"])
+        back_x = max(dx + float(g["retreat_x"]), cx + 0.03)      # not closer to the body than the carry point
+        after = [make_pose([dx, dy, z + float(g["lift_z"])]), make_pose([back_x, dy, z + float(g["lift_z"])]),
+                 make_pose([cx, cy if arm == "left" else -cy, cz])]
         for pre in offsets:
             feedback("pre_grasp", 0.2, f"planning to pre-grasp ({pre:+.2f} m behind the object)")
             try:
-                self.moveit.move_pose(arm, make_pose([dx + pre, dy, z]))
+                def at_pre_grasp():
+                    feedback("pre_grasp", 1.0, "at pre-grasp")
+                    feedback("grasp", 0.2, "approaching")
+                kind = self.moveit.move_pose_then_cartesian(arm, make_pose([dx + pre, dy, z]), [make_pose([dx, dy, z])],
+                                                            seeds=self.arm_seeds(arm), at_pose=at_pre_grasp, then=after)
+                if kind != "full":
+                    feedback("grasp", 0.3, "no arm configuration reaches the carry point in a straight line; the cup may tilt on the way")
                 break
             except SkillError as error:
                 last_error = error
         else:
             raise SkillError(f"pre-grasp unreachable: {last_error}")
-        feedback("pre_grasp", 1.0, "at pre-grasp")
-        feedback("grasp", 0.2, "approaching")
-        self.moveit.move_cartesian(arm, [make_pose([dx, dy, z])])
         result = self.moveit.gripper(arm, g["close"], g["effort"])
         if not (float(g["close_min"]) <= result.position <= float(g["close_max"])):
             self.moveit.gripper(arm, g["open"], g["effort"])
@@ -227,7 +242,7 @@ class PickPlaceServer(Node):
         self.attached = {"arm": arm, "name": name, "pose": (dx, dy, z)}     # for recover() if the next moves fail
         feedback("lift", 0.3, "lifting")
         up = make_pose([dx, dy, z + float(g["lift_z"])])
-        back = make_pose([dx + float(g["retreat_x"]), dy, z + float(g["lift_z"])])
+        back = make_pose([back_x, dy, z + float(g["lift_z"])])
         try:
             self.moveit.move_cartesian(arm, [up, back])
         except SkillError as error:
@@ -244,15 +259,24 @@ class PickPlaceServer(Node):
         size = self.cfg["objects"][name]["size"]
         z = top_z + float(p["drop_z"]) + size[2] / 2 + float(g["z_offset"])
         feedback("place", 0.1, f"slot at dx={slot_dx:.3f} dy={slot_dy:+.3f}; planning to pre-place")
-        self.moveit.move_pose(arm, make_pose([slot_dx + float(p["pre_offset_x"]), slot_dy, z + float(g["lift_z"])]))
-        feedback("place", 0.5, "lowering")
-        self.moveit.move_cartesian(arm, [make_pose([slot_dx, slot_dy, z + float(g["lift_z"])]),
-                                         make_pose([slot_dx, slot_dy, z])])
+        back = make_pose([max(slot_dx + float(g["retreat_x"]), float(self.cfg["carry_tcp"][0]) + 0.03), slot_dy, z + float(g["lift_z"])])
+        self.moveit.move_pose_then_cartesian(arm, make_pose([slot_dx + float(p["pre_offset_x"]), slot_dy, z + float(g["lift_z"])]),
+                                             [make_pose([slot_dx, slot_dy, z + float(g["lift_z"])]), make_pose([slot_dx, slot_dy, z])],
+                                             seeds=self.arm_seeds(arm), at_pose=lambda: feedback("place", 0.5, "lowering"), then=[back])
         self.moveit.gripper(arm, g["open"], g["effort"])
         self.moveit.detach(arm, name)
         self.attached = None
         feedback("place", 0.8, "released")
-        self.moveit.move_cartesian(arm, [make_pose([slot_dx + float(g["retreat_x"]), slot_dy, z + float(g["lift_z"])])])
+        try:
+            self.moveit.move_cartesian(arm, [back])
+        except SkillError as error:
+            # The cup is already on the table: a failed straight retreat is not a failed place. Lift the hand clear of
+            # the cup if possible and let the planner take the arm to the transport pose.
+            feedback("retreat", 0.3, f"straight retreat failed ({error}); lifting and planning to transport")
+            try:
+                self.moveit.move_cartesian(arm, [make_pose([slot_dx, slot_dy, z + float(g["lift_z"])])])
+            except SkillError:
+                pass
         feedback("retreat", 0.5, "back to transport")
 
     # --- halves -----------------------------------------------------------
@@ -265,6 +289,10 @@ class PickPlaceServer(Node):
         if arm not in self.cfg["arms"]:
             raise SkillError("arm must be left or right")
         feedback("start", 0.0, f"{name} sits {offset:+.2f} m from the {src} axis -> {arm} arm")
+        self.working_arm = arm                # recover() stows this arm if the pick fails before anything is attached
+        # The Task Manager calls this right after a Nav2 goal: the base may still be rolling to a stop, and the bridge
+        # rejects arm trajectories while the base moves.
+        self.nav.settle()
         self.moveit.move_named(arm, self.cfg["transport_pose"], self.states)
         dock_side = self.dock_side_for(offset)
         if dock_side:
@@ -277,10 +305,24 @@ class PickPlaceServer(Node):
         rel = self.locate_object(name)
         if not goal.arm and self.arm_for_offset(rel[1]) != arm:
             arm = self.arm_for_offset(rel[1])
+            self.working_arm = arm
             feedback("locate", 0.5, f"{name} is {rel[1]:+.3f} m from the base axis after docking -> {arm} arm instead")
         self.grasp(arm, name, feedback, rel)
         feedback("carry", 0.2, f"{self.cfg['carry_pose']} pose with object")
-        self.moveit.move_named(arm, self.cfg["carry_pose"], self.states)
+        # Pull the hand straight in to the carry point first: a Cartesian move keeps the grasp orientation, so the cup
+        # stays upright. (A joint-space move to a named pose only fixes the joint angles: with the old hands_up pose the
+        # hand ended up pointing up and back, and the cup travelled upside down.)
+        cx, cy, cz = (float(v) for v in self.cfg["carry_tcp"])
+        try:
+            self.moveit.move_cartesian(arm, [make_pose([cx, cy if arm == "left" else -cy, cz])])
+        except SkillError as error:
+            # The nearest IK solution of the same hand pose is a short joint move, so the cup still stays close to upright.
+            feedback("carry", 0.5, f"straight pull-in failed ({error}); planning to the carry point")
+            try:
+                self.moveit.move_pose(arm, make_pose([cx, cy if arm == "left" else -cy, cz]))
+            except SkillError as error2:
+                feedback("carry", 0.6, f"carry point unreachable ({error2}); going to the carry pose directly")
+        self.moveit.move_named(arm, self.cfg["carry_pose"], self.states)       # exact joints: the bridge only drives in a drive pose
         self.nav.drive(-float(self.cfg["dock"]["undock_distance"]))
         return name, arm, src
 
@@ -303,6 +345,16 @@ class PickPlaceServer(Node):
         starts in collision (box touching the table) and the whole robot is stuck."""
         att, self.attached = self.attached, None
         if att is None:
+            # Nothing attached (the pick failed before the grasp): stow the arm, or the bridge refuses /cmd_vel
+            # (arms must be in a drive pose) and the next goal times out in navigation.
+            arm, self.working_arm = getattr(self, "working_arm", None), None
+            if self.held is not None:          # held but not attached: the cup was released before the failure
+                arm, self.held = self.held["arm"], None
+            if arm:
+                try:
+                    self.moveit.move_named(arm, self.cfg["transport_pose"], self.states)
+                except SkillError as error:
+                    self.get_logger().warning(f"recover/transport pose failed: {error}")
             return
         arm, name, (dx, dy, z) = att["arm"], att["name"], att["pose"]
         g = self.cfg["grasp"]
