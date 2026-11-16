@@ -198,10 +198,11 @@ python lessons/01_mujoco_ros2/urdf_to_mjcf.py --raw
 
 ![raw](lesson01c_t_raw.png){width=1000}
 
-### 그대로 읽은 모델을 1 초 돌리면
+### 참조 영상: 그대로 읽은 모델을 1 초 돌리면
 
 ![그대로 읽은 모델 (움직이는 그림)](lesson01c_plain.gif){width=800}
 
+- 실행하는 단계가 아님 · 개념을 설명하기 위한 참조 영상 (따라 칠 명령 없음)
 - ① link1: base 원기둥과 충돌해 밀려남 (0.6 → 0.01 rad)
 - ② link2: 잡아 주는 힘이 없어 처짐 → ③ 관절 한계 2.0 rad 에서 멈춤
 - 뒷부분(초록): 같은 URDF 를 `urdf_to_mjcf.py` 로 변환한 모델 · 같은 자세를 버팀
