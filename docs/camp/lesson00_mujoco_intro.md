@@ -50,6 +50,10 @@ ls ~/mujoco_menagerie/unitree_go2
 ls -d ~/mujoco_menagerie/*/ | xargs -n1 basename | column -c 110
 ```
 
+- `ls -d ~/mujoco_menagerie/*/`: 폴더만 골라 나열 · 끝의 `/` 가 폴더만 고르고, `-d` 는 폴더 안이 아니라 폴더 이름 자체를 보여 줌
+- `| xargs -n1 basename`: 앞 명령의 결과를 한 줄씩 받아 경로 앞부분을 떼고 폴더 이름만 남김 (`|` = 앞 명령의 출력을 뒤 명령의 입력으로)
+- `| column -c 110`: 한 줄에 하나씩 나온 이름을 폭 110 글자에 맞춰 여러 열로 정리 · 폴더 하나 = 로봇 모델 하나
+
 ### 실행 결과: 로봇 목록
 
 ![목록](intro_mj_t_list.png){width=1000}

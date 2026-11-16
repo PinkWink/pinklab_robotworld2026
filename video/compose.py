@@ -320,7 +320,7 @@ def scenes(run):
         (t_drive1, t_dock1, 4.0, follow(150, 4.0, 0.7, -32), "Nav2 로 음료대까지", "지도 위 경로 계획 · 장애물 회피"),
         (t_dock1, t_lift + 2.0, 10.0, lambda u: dict(mode="fixed", lookat=[7.64, -1.93, 0.85], distance=1.95 - 0.2 * ease(u), azimuth=104 + 8 * u, elevation=-36),
          "마커 도킹 → MoveIt 으로 컵 집기", "카메라로 ArUco 마커를 보고 붙은 뒤 양팔 중 가까운 팔로"),
-        (t_lift + 2.0, t_dock2, 8.0, follow(160, 3.4), "컵을 든 채로 2번 테이블까지", "운반 자세로 주행"),
+        (t_lift + 2.0, t_dock2, 8.0, follow(160, 3.4), "컵을 든 채로 2번 테이블까지", "컵을 똑바로 세운 운반 자세로 주행"),
         (t_dock2, t_retreat + 2.0, 9.0, lambda u: dict(mode="fixed", lookat=[6.0, -4.40, 0.8], distance=2.4 - 0.2 * ease(u), azimuth=-122 + 8 * u, elevation=-15),
          "손님 앞에 내려놓기", "테이블 가장자리 마커에 도킹 · 빈 자리를 찾아 놓기"),
     ]

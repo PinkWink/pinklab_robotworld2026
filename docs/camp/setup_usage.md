@@ -84,15 +84,27 @@ cd pinklab_robotworld2026
 
 ![OpenAI 키](setup_openai_key.png){width=1000}
 
-### ④ OpenAI 키 설정 명령
+### ④ OpenAI 키 설정 명령 (수업 수강생)
 
 ```bash
 cd ~/pinklab_robotworld2026
+cp ~/Downloads/temp.env .env      # 수업에서 받은 키 파일을 .env 로 복사
+```
+
+- `temp.env`: 수업 시간에 별도 링크로 배포하는 키 파일 · 받으면 다운로드 폴더에 저장됨
+- 이 키는 수업 한정 배포 · 수업 밖 사용과 외부 공유 금지
+- 한글 Ubuntu는 다운로드 폴더가 `~/다운로드` → `cp ~/다운로드/temp.env .env`
+
+### ④ OpenAI 키 설정 명령 (수업 밖에서 따라 하는 경우)
+
+```bash
+cd ~/pinklab_robotworld2026
+cp .env.example .env
 gnome-text-editor .env    # OPENAI_API_KEY=sk-... 자리에 본인 키 붙여넣기
 ```
 
-- `.env` 는 설치 스크립트가 `.env.example` 을 복사해 만들어 둠 · 키는 위 "OpenAI API 키 받는 법"대로 직접 발급
-- LLM 모듈과 웹 FMS 의 LLM 지령에 필요 · 주행 · MoveIt · 컵 집고 놓기는 키 없이 동작
+- 수업 밖에서 이 자료를 따라 하는 경우 키는 제공되지 않음 → 위 "OpenAI API 키 받는 법"대로 본인 키를 직접 발급
+- LLM 모듈부터 필요 · 주행 · MoveIt · Pick & Place 모듈은 키 없이 동작
 - 모델 · 가격표: `src/warehouse_lecture/config/llm.yaml` · 호출 기록: `logs/openai_usage.jsonl`
 
 ### ros2 명령을 직접 칠 때 (env.sh)

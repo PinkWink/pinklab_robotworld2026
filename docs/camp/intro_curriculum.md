@@ -1,5 +1,9 @@
 ## 1. 이 패키지는 무엇인가
 
+### 핑크랩 로보월드 2026
+
+![핑크랩 로보월드 2026 부스 일주](pinklab_booth_orbit.mp4){width=1000}
+
 ### 한 줄 소개
 
 ![패키지 개요](intro_overview.png){width=1000}
@@ -91,10 +95,6 @@
 ### C. LLM · Task Planning · UI · 개발 도구 (모듈 ⑪~⑭)
 
 ![기술 스택 C](intro_stack_lmm.png){width=1000}
-
-### 쌓이는 순서
-
-![쌓이는 순서](intro_stack_order.png){width=1000}
 
 ## 5. 코드 저장소
 
