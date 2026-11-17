@@ -144,6 +144,19 @@ cat artifacts/maps/my_booth.yaml
 
 ![map_saver_cli 실행 결과](lesson04_cli_map_saver.png){width=1000}
 
+### 지도를 만들지 못했다면: 준비된 지도 복사
+
+```bash
+# 워크스페이스 루트에서 실행
+mkdir -p artifacts/maps
+cp lessons/03_slam/my_booth.* artifacts/maps/
+cat artifacts/maps/my_booth.yaml
+```
+
+- 저장소에 같은 방법으로 미리 만들어 둔 지도 포함: `lessons/03_slam/my_booth.pgm` · `my_booth.yaml`
+- 복사한 뒤에는 이후 글의 `map:=$PWD/artifacts/maps/my_booth.yaml` 명령을 그대로 사용
+- 다음 글 Navigation 의 기본 실행은 패키지 지도(`booth.yaml`)를 쓰므로 내 지도가 없어도 진행 가능
+
 ### yaml 의 뜻
 
 ![yaml 필드](lesson04_yaml_fields.png){width=1000}

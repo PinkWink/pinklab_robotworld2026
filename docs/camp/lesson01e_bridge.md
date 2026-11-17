@@ -67,6 +67,10 @@ for i in range(1000):
 python lessons/01_mujoco_ros2/mujoco_basics.py
 ```
 
+- MuJoCo 를 따로 띄워 둘 필요 없음 · 이 스크립트가 `import mujoco` 로 물리 엔진을 직접 부름
+- 창은 뜨지 않음 · 계산만 하고 관절 각도를 터미널에 출력한 뒤 끝남 (ROS 2 도 쓰지 않음)
+- 준비: 같은 터미널에서 `source scripts/env.sh` · 앞 글에서 저장한 `two_link_arm_from_urdf.xml`
+
 ### 실행 결과: 목표 각으로 움직인 관절
 
 ![기초 루프 실행 결과](lesson01e_t_basics.png){width=1000}
